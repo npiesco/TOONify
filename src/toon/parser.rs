@@ -94,18 +94,18 @@ fn parse_value(lines: &[&str], info: HeaderInfo) -> Result<(Value, usize), Strin
             
             if !info.columns.is_empty() {
                 let mut obj = Map::new();
-                let values: Vec<&str> = split_csv_line(line);
+                let values = split_csv_line(line);
                 
                 for (idx, col) in info.columns.iter().enumerate() {
                     if idx < values.len() {
-                        obj.insert(col.clone(), parse_csv_value(values[idx]));
+                        obj.insert(col.clone(), parse_csv_value(&values[idx]));
                     }
                 }
                 
                 array_items.push(Value::Object(obj));
             } else {
-                let values: Vec<&str> = split_csv_line(line);
-                for v in values {
+                let values = split_csv_line(line);
+                for v in &values {
                     array_items.push(parse_csv_value(v));
                 }
             }
@@ -125,7 +125,7 @@ fn parse_value(lines: &[&str], info: HeaderInfo) -> Result<(Value, usize), Strin
     }
 }
 
-fn split_csv_line(line: &str) -> Vec<&str> {
+fn split_csv_line(line: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut in_quotes = false;
@@ -134,7 +134,7 @@ fn split_csv_line(line: &str) -> Vec<&str> {
         match ch {
             '"' => in_quotes = !in_quotes,
             ',' if !in_quotes => {
-                parts.push(current.clone());
+                parts.push(current.trim().to_string());
                 current.clear();
             }
             _ => current.push(ch),
@@ -142,10 +142,10 @@ fn split_csv_line(line: &str) -> Vec<&str> {
     }
     
     if !current.is_empty() || !parts.is_empty() {
-        parts.push(current);
+        parts.push(current.trim().to_string());
     }
     
-    parts.iter().map(|s| s.trim()).collect()
+    parts
 }
 
 fn parse_csv_value(s: &str) -> Value {

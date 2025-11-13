@@ -1,3 +1,39 @@
 modules = ["rust-stable"]
 [agent]
 expertMode = true
+
+[nix]
+channel = "stable-25_05"
+packages = ["protobuf", "jq"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "TOON Converter"
+
+[[workflows.workflow]]
+name = "TOON Converter"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "./target/release/toon-converter"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 50051
+externalPort = 3000
