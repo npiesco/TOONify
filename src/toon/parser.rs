@@ -3,7 +3,7 @@ use nom::{
     character::complete::{char, digit1, multispace0, newline},
     combinator::{map, map_res, opt},
     multi::{many0, separated_list0},
-    sequence::{preceded, terminated},
+    sequence::terminated,
     IResult,
 };
 use serde_json::{Map, Number, Value};
@@ -88,27 +88,35 @@ fn column_metadata(input: &str) -> IResult<&str, Vec<String>> {
 }
 
 fn array_value(input: &str, columns: Vec<String>) -> IResult<&str, Value> {
-    let (input, lines) = many0(preceded(multispace0, data_line))(input)?;
-    
+    let mut input = input;
     let mut items = Vec::new();
     
-    for line in lines {
-        if !columns.is_empty() {
-            let values = split_csv(&line);
-            let mut obj = Map::new();
-            
-            for (idx, col) in columns.iter().enumerate() {
-                if idx < values.len() {
-                    obj.insert(col.clone(), parse_value(&values[idx]));
+    loop {
+        let (remaining, _) = multispace0(input)?;
+        
+        match data_line(remaining) {
+            Ok((next_input, line)) => {
+                if !columns.is_empty() {
+                    let values = split_csv(&line);
+                    let mut obj = Map::new();
+                    
+                    for (idx, col) in columns.iter().enumerate() {
+                        if idx < values.len() {
+                            obj.insert(col.clone(), parse_value(&values[idx]));
+                        }
+                    }
+                    
+                    items.push(Value::Object(obj));
+                } else {
+                    let values = split_csv(&line);
+                    for v in values {
+                        items.push(parse_value(&v));
+                    }
                 }
+                
+                input = next_input;
             }
-            
-            items.push(Value::Object(obj));
-        } else {
-            let values = split_csv(&line);
-            for v in values {
-                items.push(parse_value(&v));
-            }
+            Err(_) => break,
         }
     }
     
@@ -132,19 +140,20 @@ fn object_value(input: &str, columns: Vec<String>) -> IResult<&str, Value> {
 }
 
 fn data_line(input: &str) -> IResult<&str, String> {
+    let start_input = input;
     let (input, line) = take_until_newline_or_end(input)?;
     let trimmed = line.trim();
     
     if trimmed.is_empty() {
         return Err(nom::Err::Error(nom::error::Error::new(
-            input,
+            start_input,
             nom::error::ErrorKind::Tag,
         )));
     }
     
-    if looks_like_entry_header(trimmed) {
+    if is_entry_header_line(trimmed) {
         return Err(nom::Err::Error(nom::error::Error::new(
-            input,
+            start_input,
             nom::error::ErrorKind::Tag,
         )));
     }
@@ -152,38 +161,64 @@ fn data_line(input: &str) -> IResult<&str, String> {
     Ok((input, line.to_string()))
 }
 
-fn looks_like_entry_header(line: &str) -> bool {
-    if let Some(colon_pos) = line.find(':') {
-        let before_colon = &line[..colon_pos];
-        let after_colon = &line[colon_pos + 1..];
-        
-        if after_colon.trim().is_empty() {
-            let chars: Vec<char> = before_colon.chars().collect();
-            
-            let mut i = 0;
-            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                i += 1;
-            }
-            
-            if i == 0 {
-                return false;
-            }
-            
-            while i < chars.len() && chars[i].is_whitespace() {
-                i += 1;
-            }
-            
-            if i == chars.len() {
-                return true;
-            }
-            
-            if i < chars.len() && (chars[i] == '[' || chars[i] == '{') {
-                return true;
-            }
-        }
+fn is_entry_header_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    
+    let colon_pos = match trimmed.find(':') {
+        Some(pos) => pos,
+        None => return false,
+    };
+    
+    let before_colon = &trimmed[..colon_pos];
+    
+    let chars: Vec<char> = before_colon.chars().collect();
+    if chars.is_empty() {
+        return false;
     }
     
-    false
+    let mut i = 0;
+    
+    while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+        i += 1;
+    }
+    
+    if i == 0 {
+        return false;
+    }
+    
+    while i < chars.len() {
+        if chars[i].is_whitespace() {
+            i += 1;
+            continue;
+        }
+        
+        if chars[i] == '[' {
+            i += 1;
+            while i < chars.len() && chars[i].is_numeric() {
+                i += 1;
+            }
+            if i >= chars.len() || chars[i] != ']' {
+                return false;
+            }
+            i += 1;
+            continue;
+        }
+        
+        if chars[i] == '{' {
+            while i < chars.len() && chars[i] != '}' {
+                i += 1;
+            }
+            if i >= chars.len() {
+                return false;
+            }
+            i += 1;
+            continue;
+        }
+        
+        return false;
+    }
+    
+    true
 }
 
 fn take_until_newline_or_end(input: &str) -> IResult<&str, &str> {

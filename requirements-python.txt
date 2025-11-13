@@ -1,0 +1,9 @@
+# Python requirements for using TOONify bindings
+# Install with: pip install -r requirements-python.txt
+
+# Optional: For generating bindings from Python
+# uniffi-bindgen==0.28.3
+
+# No runtime dependencies required!
+# The UniFFI-generated Python code only depends on Python's ctypes (built-in)
+

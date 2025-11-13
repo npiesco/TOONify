@@ -74,7 +74,7 @@ struct ConvertResult {
 }
 
 async fn health_check() -> &'static str {
-    "TOON Converter API - Blazing Fast!"
+    "TOONify API - Blazing Fast!"
 }
 
 async fn json_to_toon_handler(
