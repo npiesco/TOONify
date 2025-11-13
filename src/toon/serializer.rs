@@ -23,8 +23,17 @@ fn serialize_entry(key: &str, value: &Value) -> Result<String, String> {
                 return Ok(format!("{}[0]:\n", key));
             }
             
-            if let Some(Value::Object(first_obj)) = arr.first() {
-                let columns: Vec<String> = first_obj.keys().cloned().collect();
+            if let Some(Value::Object(_)) = arr.first() {
+                use std::collections::BTreeSet;
+                let mut columns_set = BTreeSet::new();
+                for item in arr {
+                    if let Value::Object(obj) = item {
+                        for key in obj.keys() {
+                            columns_set.insert(key.clone());
+                        }
+                    }
+                }
+                let columns: Vec<String> = columns_set.into_iter().collect();
                 let mut output = format!("{}[{}]{{{}}}:\n", 
                     key, 
                     arr.len(), 

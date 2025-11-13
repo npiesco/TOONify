@@ -74,7 +74,7 @@ struct ConvertResult {
 }
 
 async fn health_check() -> &'static str {
-    "TOON Converter API - Blazing Fast! 🚀"
+    "TOON Converter API - Blazing Fast!"
 }
 
 async fn json_to_toon_handler(
@@ -129,7 +129,7 @@ async fn main() {
     let grpc_service = ConverterServiceServer::new(ConverterServiceImpl);
 
     tokio::spawn(async move {
-        println!("🚀 gRPC server listening on {}", grpc_addr);
+        println!("[gRPC] Server listening on {}", grpc_addr);
         Server::builder()
             .add_service(grpc_service)
             .serve(grpc_addr)
@@ -146,8 +146,8 @@ async fn main() {
         .await
         .expect("Failed to bind");
 
-    println!("🌐 HTTP REST API listening on {}", http_addr);
-    println!("📡 Endpoints:");
+    println!("[HTTP] REST API listening on {}", http_addr);
+    println!("Endpoints:");
     println!("   GET  /            - Health check");
     println!("   POST /json-to-toon - Convert JSON to TOON");
     println!("   POST /toon-to-json - Convert TOON to JSON");

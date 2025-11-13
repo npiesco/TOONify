@@ -1,131 +1,198 @@
-use serde_json::{Value, Map, Number};
+use nom::{
+    bytes::complete::{take_while, take_while1},
+    character::complete::{char, digit1, multispace0, newline},
+    combinator::{map, map_res, opt},
+    multi::{many0, separated_list0},
+    sequence::{preceded, terminated},
+    IResult,
+};
+use serde_json::{Map, Number, Value};
 
 pub fn parse_toon(input: &str) -> Result<Value, String> {
-    let mut root = Map::new();
-    let lines: Vec<&str> = input.lines().map(|l| l.trim_end()).collect();
-    
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        
-        if line.trim().is_empty() {
-            i += 1;
-            continue;
-        }
-        
-        if let Some((key, rest)) = parse_header_line(line) {
-            let (value, consumed) = parse_value(&lines[i..], rest)?;
-            root.insert(key, value);
-            i += consumed;
-        } else {
-            i += 1;
-        }
+    match toon_document(input) {
+        Ok((remaining, value)) => {
+            if !remaining.trim().is_empty() {
+                return Err(format!("Parse error: unexpected content at end: {:?}", remaining.chars().take(50).collect::<String>()));
+            }
+            Ok(value)
+        },
+        Err(e) => Err(format!("Parse error: {}", e)),
     }
-    
-    Ok(Value::Object(root))
 }
 
-fn parse_header_line(line: &str) -> Option<(String, HeaderInfo)> {
-    if !line.contains(':') {
-        return None;
+fn toon_document(input: &str) -> IResult<&str, Value> {
+    let (input, _) = multispace0(input)?;
+    let (input, entries) = many0(terminated(entry, multispace0))(input)?;
+    
+    let mut map = Map::new();
+    for (key, value) in entries {
+        map.insert(key, value);
     }
     
-    let parts: Vec<&str> = line.split(':').collect();
-    if parts.len() < 2 {
-        return None;
-    }
+    Ok((input, Value::Object(map)))
+}
+
+fn entry(input: &str) -> IResult<&str, (String, Value)> {
+    let (input, key) = identifier(input)?;
+    let (input, meta) = opt(metadata)(input)?;
+    let (input, _) = char(':')(input)?;
+    let (input, _) = multispace0(input)?;
     
-    let header = parts[0];
-    let mut key = String::new();
-    let mut is_array = false;
-    let mut count = 0;
-    let mut columns = Vec::new();
-    
-    if let Some(array_start) = header.find('[') {
-        key = header[..array_start].to_string();
-        is_array = true;
-        
-        if let Some(array_end) = header.find(']') {
-            if let Ok(c) = header[array_start + 1..array_end].parse::<usize>() {
-                count = c;
-            }
-        }
-        
-        if let Some(cols_start) = header.find('{') {
-            if let Some(cols_end) = header.find('}') {
-                let cols_str = &header[cols_start + 1..cols_end];
-                columns = cols_str.split(',').map(|s| s.trim().to_string()).collect();
-            }
-        }
-    } else if let Some(cols_start) = header.find('{') {
-        key = header[..cols_start].to_string();
-        if let Some(cols_end) = header.find('}') {
-            let cols_str = &header[cols_start + 1..cols_end];
-            columns = cols_str.split(',').map(|s| s.trim().to_string()).collect();
+    let (input, value) = if let Some((is_array, columns)) = meta {
+        if is_array {
+            array_value(input, columns)?
+        } else if !columns.is_empty() {
+            object_value(input, columns)?
+        } else {
+            let (input, rest) = take_until_newline_or_end(input)?;
+            let val = parse_value(rest.trim());
+            (input, val)
         }
     } else {
-        key = header.to_string();
-    }
+        let (input, rest) = take_until_newline_or_end(input)?;
+        let val = parse_value(rest.trim());
+        (input, val)
+    };
     
-    Some((key, HeaderInfo { is_array, count, columns }))
+    Ok((input, (key.to_string(), value)))
 }
 
-struct HeaderInfo {
-    is_array: bool,
-    count: usize,
-    columns: Vec<String>,
+fn metadata(input: &str) -> IResult<&str, (bool, Vec<String>)> {
+    let (input, array_meta) = opt(array_metadata)(input)?;
+    let (input, columns) = opt(column_metadata)(input)?;
+    
+    let is_array = array_meta.is_some();
+    let cols = columns.unwrap_or_default();
+    
+    Ok((input, (is_array, cols)))
 }
 
-fn parse_value(lines: &[&str], info: HeaderInfo) -> Result<(Value, usize), String> {
-    if info.is_array || !info.columns.is_empty() {
-        let mut array_items = Vec::new();
-        let mut consumed = 1;
-        
-        for i in 1..lines.len() {
-            let line = lines[i].trim();
+fn array_metadata(input: &str) -> IResult<&str, usize> {
+    let (input, _) = char('[')(input)?;
+    let (input, count) = map_res(digit1, |s: &str| s.parse::<usize>())(input)?;
+    let (input, _) = char(']')(input)?;
+    Ok((input, count))
+}
+
+fn column_metadata(input: &str) -> IResult<&str, Vec<String>> {
+    let (input, _) = char('{')(input)?;
+    let (input, cols) = separated_list0(
+        char(','),
+        map(
+            take_while1(|c: char| c.is_alphanumeric() || c == '_'),
+            |s: &str| s.trim().to_string(),
+        ),
+    )(input)?;
+    let (input, _) = char('}')(input)?;
+    Ok((input, cols))
+}
+
+fn array_value(input: &str, columns: Vec<String>) -> IResult<&str, Value> {
+    let (input, lines) = many0(preceded(multispace0, data_line))(input)?;
+    
+    let mut items = Vec::new();
+    
+    for line in lines {
+        if !columns.is_empty() {
+            let values = split_csv(&line);
+            let mut obj = Map::new();
             
-            if line.is_empty() {
-                break;
-            }
-            
-            if line.contains(':') && !line.starts_with(' ') && !line.starts_with('\t') {
-                break;
-            }
-            
-            if !info.columns.is_empty() {
-                let mut obj = Map::new();
-                let values = split_csv_line(line);
-                
-                for (idx, col) in info.columns.iter().enumerate() {
-                    if idx < values.len() {
-                        obj.insert(col.clone(), parse_csv_value(&values[idx]));
-                    }
-                }
-                
-                array_items.push(Value::Object(obj));
-            } else {
-                let values = split_csv_line(line);
-                for v in &values {
-                    array_items.push(parse_csv_value(v));
+            for (idx, col) in columns.iter().enumerate() {
+                if idx < values.len() {
+                    obj.insert(col.clone(), parse_value(&values[idx]));
                 }
             }
             
-            consumed += 1;
-        }
-        
-        Ok((Value::Array(array_items), consumed))
-    } else {
-        let rest = if lines[0].contains(':') {
-            lines[0].split(':').nth(1).unwrap_or("").trim()
+            items.push(Value::Object(obj));
         } else {
-            ""
-        };
-        
-        Ok((parse_csv_value(rest), 1))
+            let values = split_csv(&line);
+            for v in values {
+                items.push(parse_value(&v));
+            }
+        }
     }
+    
+    Ok((input, Value::Array(items)))
 }
 
-fn split_csv_line(line: &str) -> Vec<String> {
+fn object_value(input: &str, columns: Vec<String>) -> IResult<&str, Value> {
+    let (input, _) = multispace0(input)?;
+    let (input, line) = data_line(input)?;
+    
+    let values = split_csv(&line);
+    let mut obj = Map::new();
+    
+    for (idx, col) in columns.iter().enumerate() {
+        if idx < values.len() {
+            obj.insert(col.clone(), parse_value(&values[idx]));
+        }
+    }
+    
+    Ok((input, Value::Object(obj)))
+}
+
+fn data_line(input: &str) -> IResult<&str, String> {
+    let (input, line) = take_until_newline_or_end(input)?;
+    let trimmed = line.trim();
+    
+    if trimmed.is_empty() {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
+    
+    if looks_like_entry_header(trimmed) {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
+    
+    Ok((input, line.to_string()))
+}
+
+fn looks_like_entry_header(line: &str) -> bool {
+    if let Some(colon_pos) = line.find(':') {
+        let before_colon = &line[..colon_pos];
+        let chars: Vec<char> = before_colon.chars().collect();
+        
+        let mut i = 0;
+        while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+            i += 1;
+        }
+        
+        if i == 0 {
+            return false;
+        }
+        
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        
+        if i == chars.len() {
+            return true;
+        }
+        
+        if i < chars.len() && (chars[i] == '[' || chars[i] == '{') {
+            return true;
+        }
+    }
+    
+    false
+}
+
+fn take_until_newline_or_end(input: &str) -> IResult<&str, &str> {
+    let (remaining, content) = take_while(|c| c != '\n' && c != '\r')(input)?;
+    let (remaining, _) = opt(newline)(remaining)?;
+    Ok((remaining, content))
+}
+
+fn identifier(input: &str) -> IResult<&str, &str> {
+    take_while1(|c: char| c.is_alphanumeric() || c == '_')(input)
+}
+
+fn split_csv(line: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut in_quotes = false;
@@ -148,14 +215,10 @@ fn split_csv_line(line: &str) -> Vec<String> {
     parts
 }
 
-fn parse_csv_value(s: &str) -> Value {
+fn parse_value(s: &str) -> Value {
     let s = s.trim();
     
-    if s.is_empty() {
-        return Value::Null;
-    }
-    
-    if s == "null" {
+    if s.is_empty() || s == "null" {
         return Value::Null;
     }
     
