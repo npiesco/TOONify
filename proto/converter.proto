@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package converter;
+
+service ConverterService {
+  rpc JsonToToon (ConvertRequest) returns (ConvertResponse);
+  rpc ToonToJson (ConvertRequest) returns (ConvertResponse);
+}
+
+message ConvertRequest {
+  string data = 1;
+}
+
+message ConvertResponse {
+  string result = 1;
+  string error = 2;
+}

@@ -1,2 +1,3 @@
+modules = ["rust-stable"]
 [agent]
 expertMode = true
