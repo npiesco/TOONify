@@ -164,6 +164,38 @@ fn test_varied_fields_roundtrip() {
 }
 
 #[test]
+fn test_colon_bearing_values() {
+    let json_with_colons = r#"{
+  "logs": [
+    {
+      "id": 1,
+      "message": "error:404",
+      "status": "failed"
+    },
+    {
+      "id": 2,
+      "message": "note:success",
+      "status": "ok"
+    }
+  ]
+}"#;
+
+    println!("=== Colon-Bearing Values Round-trip Test ===");
+    
+    let toon = converter::json_to_toon(json_with_colons).expect("Failed to convert JSON to TOON");
+    println!("TOON with colon-bearing values:\n{}\n", toon);
+    
+    let back_to_json = converter::toon_to_json(&toon).expect("Failed to convert TOON to JSON");
+    println!("Back to JSON:\n{}\n", back_to_json);
+    
+    let original: Value = serde_json::from_str(json_with_colons).unwrap();
+    let final_value: Value = serde_json::from_str(&back_to_json).unwrap();
+    
+    assert_eq!(original, final_value, "Colon-bearing values round-trip failed");
+    println!("✓ Colon-bearing values round-trip successful\n");
+}
+
+#[test]
 fn test_timestamps_with_colons() {
     let json_with_timestamps = r#"{
   "events": [

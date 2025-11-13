@@ -155,27 +155,31 @@ fn data_line(input: &str) -> IResult<&str, String> {
 fn looks_like_entry_header(line: &str) -> bool {
     if let Some(colon_pos) = line.find(':') {
         let before_colon = &line[..colon_pos];
-        let chars: Vec<char> = before_colon.chars().collect();
+        let after_colon = &line[colon_pos + 1..];
         
-        let mut i = 0;
-        while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-            i += 1;
-        }
-        
-        if i == 0 {
-            return false;
-        }
-        
-        while i < chars.len() && chars[i].is_whitespace() {
-            i += 1;
-        }
-        
-        if i == chars.len() {
-            return true;
-        }
-        
-        if i < chars.len() && (chars[i] == '[' || chars[i] == '{') {
-            return true;
+        if after_colon.trim().is_empty() {
+            let chars: Vec<char> = before_colon.chars().collect();
+            
+            let mut i = 0;
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            
+            if i == 0 {
+                return false;
+            }
+            
+            while i < chars.len() && chars[i].is_whitespace() {
+                i += 1;
+            }
+            
+            if i == chars.len() {
+                return true;
+            }
+            
+            if i < chars.len() && (chars[i] == '[' || chars[i] == '{') {
+                return true;
+            }
         }
     }
     
