@@ -22,6 +22,7 @@ use flate2::write::GzEncoder as GzEncoderWrite;
 use glob::glob;
 use notify::{Watcher, RecursiveMode, Event, event::{CreateKind, ModifyKind}, EventKind};
 use std::sync::mpsc::channel;
+use regex::Regex;
 
 pub mod pb {
     tonic::include_proto!("converter");
@@ -453,6 +454,18 @@ fn validate_entity(name: &str, value: &serde_json::Value, schema: &serde_json::V
             let field_types = schema_obj.get("field_types")
                 .and_then(|v| v.as_object());
             
+            // Get advanced validation constraints
+            let patterns = schema_obj.get("patterns")
+                .and_then(|v| v.as_object());
+            let ranges = schema_obj.get("ranges")
+                .and_then(|v| v.as_object());
+            let string_lengths = schema_obj.get("string_lengths")
+                .and_then(|v| v.as_object());
+            let enums = schema_obj.get("enums")
+                .and_then(|v| v.as_object());
+            let formats = schema_obj.get("formats")
+                .and_then(|v| v.as_object());
+            
             // Validate each item in array
             for (idx, item) in array.iter().enumerate() {
                 eprintln!("[VALIDATE] Validating item {}", idx);
@@ -469,11 +482,47 @@ fn validate_entity(name: &str, value: &serde_json::Value, schema: &serde_json::V
                         ).into());
                     }
                     
+                    let field_value = &item_obj[field_name];
+                    
                     // Check field type if specified
                     if let Some(types) = field_types {
                         if let Some(expected_type) = types.get(field_name).and_then(|v| v.as_str()) {
-                            let field_value = &item_obj[field_name];
                             validate_field_type(name, idx, field_name, field_value, expected_type)?;
+                        }
+                    }
+                    
+                    // Check regex pattern if specified
+                    if let Some(patterns_map) = patterns {
+                        if let Some(pattern_str) = patterns_map.get(field_name).and_then(|v| v.as_str()) {
+                            validate_pattern(name, idx, field_name, field_value, pattern_str)?;
+                        }
+                    }
+                    
+                    // Check number range if specified
+                    if let Some(ranges_map) = ranges {
+                        if let Some(range_obj) = ranges_map.get(field_name).and_then(|v| v.as_object()) {
+                            validate_range(name, idx, field_name, field_value, range_obj)?;
+                        }
+                    }
+                    
+                    // Check string length if specified
+                    if let Some(lengths_map) = string_lengths {
+                        if let Some(length_obj) = lengths_map.get(field_name).and_then(|v| v.as_object()) {
+                            validate_string_length(name, idx, field_name, field_value, length_obj)?;
+                        }
+                    }
+                    
+                    // Check enum values if specified
+                    if let Some(enums_map) = enums {
+                        if let Some(allowed_values) = enums_map.get(field_name).and_then(|v| v.as_array()) {
+                            validate_enum(name, idx, field_name, field_value, allowed_values)?;
+                        }
+                    }
+                    
+                    // Check custom format if specified
+                    if let Some(formats_map) = formats {
+                        if let Some(format_type) = formats_map.get(field_name).and_then(|v| v.as_str()) {
+                            validate_format(name, idx, field_name, field_value, format_type)?;
                         }
                     }
                 }
@@ -515,6 +564,152 @@ fn validate_field_type(entity: &str, idx: usize, field: &str, value: &serde_json
         ).into());
     }
     
+    Ok(())
+}
+
+fn validate_pattern(entity: &str, idx: usize, field: &str, value: &serde_json::Value, pattern_str: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let string_value = value.as_str()
+        .ok_or(format!("Item {} in '{}': field '{}' must be a string for pattern matching", idx, entity, field))?;
+    
+    eprintln!("[VALIDATE] Checking pattern for field '{}': value='{}', pattern='{}'", field, string_value, pattern_str);
+    
+    let regex = Regex::new(pattern_str)
+        .map_err(|e| format!("Invalid regex pattern '{}': {}", pattern_str, e))?;
+    
+    if !regex.is_match(string_value) {
+        return Err(format!(
+            "Item {} in '{}': field '{}' value '{}' does not match pattern '{}'",
+            idx, entity, field, string_value, pattern_str
+        ).into());
+    }
+    
+    eprintln!("[VALIDATE] Pattern match successful for '{}'", field);
+    Ok(())
+}
+
+fn validate_range(entity: &str, idx: usize, field: &str, value: &serde_json::Value, range_obj: &serde_json::Map<String, serde_json::Value>) -> Result<(), Box<dyn std::error::Error>> {
+    let num_value = value.as_f64()
+        .ok_or(format!("Item {} in '{}': field '{}' must be a number for range validation", idx, entity, field))?;
+    
+    eprintln!("[VALIDATE] Checking range for field '{}': value={}", field, num_value);
+    
+    if let Some(min_val) = range_obj.get("min").and_then(|v| v.as_f64()) {
+        eprintln!("[VALIDATE] Checking minimum: {} >= {}", num_value, min_val);
+        if num_value < min_val {
+            return Err(format!(
+                "Item {} in '{}': field '{}' value {} is below minimum {}",
+                idx, entity, field, num_value, min_val
+            ).into());
+        }
+    }
+    
+    if let Some(max_val) = range_obj.get("max").and_then(|v| v.as_f64()) {
+        eprintln!("[VALIDATE] Checking maximum: {} <= {}", num_value, max_val);
+        if num_value > max_val {
+            return Err(format!(
+                "Item {} in '{}': field '{}' value {} exceeds maximum {}",
+                idx, entity, field, num_value, max_val
+            ).into());
+        }
+    }
+    
+    eprintln!("[VALIDATE] Range check successful for '{}'", field);
+    Ok(())
+}
+
+fn validate_string_length(entity: &str, idx: usize, field: &str, value: &serde_json::Value, length_obj: &serde_json::Map<String, serde_json::Value>) -> Result<(), Box<dyn std::error::Error>> {
+    let string_value = value.as_str()
+        .ok_or(format!("Item {} in '{}': field '{}' must be a string for length validation", idx, entity, field))?;
+    
+    let length = string_value.len();
+    eprintln!("[VALIDATE] Checking string length for field '{}': length={}", field, length);
+    
+    if let Some(min_len) = length_obj.get("min").and_then(|v| v.as_u64()) {
+        eprintln!("[VALIDATE] Checking minimum length: {} >= {}", length, min_len);
+        if (length as u64) < min_len {
+            return Err(format!(
+                "Item {} in '{}': field '{}' length {} is below minimum {}",
+                idx, entity, field, length, min_len
+            ).into());
+        }
+    }
+    
+    if let Some(max_len) = length_obj.get("max").and_then(|v| v.as_u64()) {
+        eprintln!("[VALIDATE] Checking maximum length: {} <= {}", length, max_len);
+        if (length as u64) > max_len {
+            return Err(format!(
+                "Item {} in '{}': field '{}' length {} exceeds maximum {}",
+                idx, entity, field, length, max_len
+            ).into());
+        }
+    }
+    
+    eprintln!("[VALIDATE] String length check successful for '{}'", field);
+    Ok(())
+}
+
+fn validate_enum(entity: &str, idx: usize, field: &str, value: &serde_json::Value, allowed_values: &Vec<serde_json::Value>) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("[VALIDATE] Checking enum for field '{}': value={:?}", field, value);
+    eprintln!("[VALIDATE] Allowed values: {:?}", allowed_values);
+    
+    let is_allowed = allowed_values.iter().any(|allowed| allowed == value);
+    
+    if !is_allowed {
+        let allowed_strs: Vec<String> = allowed_values
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| format!("'{}'", s)))
+            .collect();
+        
+        return Err(format!(
+            "Item {} in '{}': field '{}' value {:?} is not one of allowed values: [{}]",
+            idx, entity, field, value, allowed_strs.join(", ")
+        ).into());
+    }
+    
+    eprintln!("[VALIDATE] Enum check successful for '{}'", field);
+    Ok(())
+}
+
+fn validate_format(entity: &str, idx: usize, field: &str, value: &serde_json::Value, format_type: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let string_value = value.as_str()
+        .ok_or(format!("Item {} in '{}': field '{}' must be a string for format validation", idx, entity, field))?;
+    
+    eprintln!("[VALIDATE] Checking format for field '{}': value='{}', format='{}'", field, string_value, format_type);
+    
+    let is_valid = match format_type {
+        "email" => {
+            // Basic email validation regex
+            let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+            email_regex.is_match(string_value)
+        }
+        "url" => {
+            // Basic URL validation
+            let url_regex = Regex::new(r"^https?://[^\s/$.?#].[^\s]*$").unwrap();
+            url_regex.is_match(string_value)
+        }
+        "date" => {
+            // ISO 8601 date format (YYYY-MM-DD)
+            let date_regex = Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
+            date_regex.is_match(string_value)
+        }
+        "uuid" => {
+            // UUID format
+            let uuid_regex = Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$").unwrap();
+            uuid_regex.is_match(string_value)
+        }
+        _ => {
+            return Err(format!("Unknown format type: {}", format_type).into());
+        }
+    };
+    
+    if !is_valid {
+        return Err(format!(
+            "Item {} in '{}': field '{}' value '{}' does not match format '{}'",
+            idx, entity, field, string_value, format_type
+        ).into());
+    }
+    
+    eprintln!("[VALIDATE] Format check successful for '{}'", field);
     Ok(())
 }
 

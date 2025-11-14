@@ -347,6 +347,7 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 | **streaming_test** | HTTP REST API, concurrent requests |
 | **compression_test** | Gzip compress/decompress, roundtrips |
 | **validation_test** | Schema validation, type checking, constraints |
+| **advanced_validation_test** | Regex patterns, ranges, enums, formats |
 | **batch_test** | Batch conversion, patterns, recursive |
 | **watch_test** | File system monitoring, auto-conversion |
 
@@ -388,10 +389,15 @@ cat data.toon | toonify validate --schema schema.json
 - **Field validation**: Ensure all required fields are present
 - **Type checking**: Validate field types (string, number, boolean, null)
 - **Array constraints**: Enforce min/max item counts
+- **Regex patterns**: Match field values against regular expressions
+- **Number ranges**: Validate min/max values for numeric fields
+- **String length**: Enforce min/max character counts
+- **Enum values**: Restrict fields to allowed value sets
+- **Custom formats**: Built-in validators for email, URL, date, UUID
 - **Multiple entities**: Validate complex multi-table TOON structures
 - **Detailed errors**: Clear error messages with entity and field names
 
-**Example Schema:**
+**Basic Schema:**
 ```json
 {
   "products": {
@@ -404,6 +410,42 @@ cat data.toon | toonify validate --schema schema.json
       "category": "string"
     },
     "min_items": 1
+  }
+}
+```
+
+**Advanced Schema with Constraints:**
+```json
+{
+  "users": {
+    "type": "array",
+    "fields": ["id", "username", "email", "age", "role"],
+    "field_types": {
+      "id": "number",
+      "username": "string",
+      "email": "string",
+      "age": "number",
+      "role": "string"
+    },
+    "patterns": {
+      "email": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+      "username": "^[a-zA-Z0-9_]{3,20}$"
+    },
+    "ranges": {
+      "age": {"min": 13, "max": 120},
+      "id": {"min": 1}
+    },
+    "string_lengths": {
+      "username": {"min": 3, "max": 20}
+    },
+    "enums": {
+      "role": ["admin", "user", "moderator", "guest"]
+    },
+    "formats": {
+      "email": "email"
+    },
+    "min_items": 1,
+    "max_items": 1000
   }
 }
 ```
@@ -619,15 +661,16 @@ toonify/
 │       ├── toonify.py       # Generated bindings
 │       └── libtoonify.dylib # Native library
 ├── tests/
-│   ├── roundtrip_test.rs    # Conversion tests
-│   ├── edge_case_test.rs    # Edge cases
-│   ├── cli_test.rs          # CLI integration tests
-│   ├── docker_test.rs       # Docker tests
-│   ├── streaming_test.rs    # HTTP API tests
-│   ├── compression_test.rs  # Compression tests
-│   ├── validation_test.rs   # Schema validation tests
-│   ├── batch_test.rs        # Batch processing tests
-│   └── watch_test.rs        # Watch mode tests
+│   ├── roundtrip_test.rs            # Conversion tests
+│   ├── edge_case_test.rs            # Edge cases
+│   ├── cli_test.rs                  # CLI integration tests
+│   ├── docker_test.rs               # Docker tests
+│   ├── streaming_test.rs            # HTTP API tests
+│   ├── compression_test.rs          # Compression tests
+│   ├── validation_test.rs           # Schema validation tests
+│   ├── advanced_validation_test.rs  # Advanced validation (regex, ranges, enums)
+│   ├── batch_test.rs                # Batch processing tests
+│   └── watch_test.rs                # Watch mode tests
 ├── benches/
 │   └── conversion_bench.rs  # Criterion benchmarks
 ├── examples/
@@ -653,6 +696,7 @@ cargo test --test cli_test
 cargo test --test streaming_test
 cargo test --test compression_test
 cargo test --test validation_test
+cargo test --test advanced_validation_test
 cargo test --test batch_test
 cargo test --test watch_test
 
@@ -785,6 +829,7 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 - [x] Streaming API (HTTP REST with event-based tests)
 - [x] Compression support (`toonify compress`, `toonify decompress`)
 - [x] Schema validation (`toonify validate`)
+- [x] Advanced schema features (regex patterns, number ranges, string length, enums, custom formats)
 - [x] Batch processing (`toonify batch`)
 - [x] Watch mode (`toonify watch` - auto-convert on file changes)
 
@@ -792,7 +837,7 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 - [ ] VS Code extension
 - [ ] Cloud-hosted API
 - [ ] WebAssembly bindings
-- [ ] Advanced schema features (regex, ranges, custom validators)
+- [ ] Performance optimizations (parallel processing, caching)
 
 ## Known Issues
 
