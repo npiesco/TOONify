@@ -1,7 +1,7 @@
 [package]
 name = "toonify"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "toonify"
@@ -33,9 +33,10 @@ lru = { version = "0.12", optional = true }
 uniffi = { version = "0.29", features = ["cli"], optional = true }
 memcache = { version = "0.17", optional = true }
 redis = { version = "0.24", optional = true }
+uuid = { version = "1.18.1", features = ["v4"], optional = true }
 
 [features]
-default = ["server", "cli", "compression", "validation", "batch", "watch", "cache", "distributed-cache", "uniffi"]
+default = ["server", "cli", "compression", "validation", "batch", "watch", "cache", "distributed-cache", "job-queue", "uniffi"]
 server = ["axum", "tokio", "tower", "tower-http", "tonic", "prost", "tracing", "tracing-subscriber", "lru"]
 cli = ["clap", "tokio"]
 compression = ["flate2"]
@@ -44,6 +45,8 @@ batch = ["glob", "rayon"]
 watch = ["notify", "tokio"]
 cache = ["lru"]
 distributed-cache = ["memcache", "redis"]
+job-queue = ["uuid", "tokio"]
+uuid = ["dep:uuid"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
@@ -123,9 +126,14 @@ path = "tests/distributed_cache_test.rs"
 name = "vscode_extension_test"
 path = "tests/vscode_extension_test.rs"
 
+[[test]]
+name = "distributed_processing_test"
+path = "tests/distributed_processing_test.rs"
+
 [[bench]]
 name = "conversion_bench"
 harness = false
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
+reqwest = { version = "0.12.24", features = ["blocking", "json"] }

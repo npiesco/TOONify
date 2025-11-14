@@ -1,6 +1,9 @@
 mod toon;
 mod converter;
 
+#[cfg(feature = "job-queue")]
+mod job_queue;
+
 use axum::{
     routing::{post, get},
     Router,
@@ -158,6 +161,18 @@ enum Commands {
         /// TTL for distributed cache entries in seconds (default: 3600)
         #[arg(long, default_value = "3600")]
         cache_ttl: u64,
+        
+        /// Enable job queue for distributed processing
+        #[arg(long)]
+        enable_job_queue: bool,
+        
+        /// Number of worker threads for job processing (default: 4)
+        #[arg(long, default_value = "4")]
+        workers: usize,
+        
+        /// Job queue backend ("memory" or redis URL like "redis://127.0.0.1:6379")
+        #[arg(long)]
+        job_queue_backend: Option<String>,
     },
 }
 
@@ -213,10 +228,10 @@ impl DistributedCache {
 type DistributedCacheType = Arc<DistributedCache>;
 
 // Cache state that can hold both LRU and distributed cache
+#[cfg(feature = "distributed-cache")]
 #[derive(Clone)]
 struct CacheState {
     lru: Option<ConversionCache>,
-    #[cfg(feature = "distributed-cache")]
     distributed: Option<DistributedCacheType>,
 }
 
@@ -224,6 +239,14 @@ struct CacheState {
 #[derive(Clone)]
 struct CacheState {
     lru: Option<ConversionCache>,
+}
+
+// Combined app state for all handlers
+#[derive(Clone)]
+struct AppState {
+    cache: CacheState,
+    #[cfg(feature = "job-queue")]
+    job_store: Option<job_queue::JobStore>,
 }
 
 #[derive(Clone)]
@@ -283,10 +306,113 @@ async fn health_check() -> &'static str {
     "TOONify API - Blazing Fast!"
 }
 
+// Job Queue HTTP Handlers
+#[cfg(feature = "job-queue")]
+#[derive(Deserialize)]
+struct SubmitJobPayload {
+    operation: String,
+    data: String,
+}
+
+#[cfg(feature = "job-queue")]
+#[derive(Serialize)]
+struct SubmitJobResponse {
+    job_id: String,
+}
+
+#[cfg(feature = "job-queue")]
+async fn submit_job_handler(
+    axum::extract::State(app_state): axum::extract::State<AppState>,
+    Json(payload): Json<SubmitJobPayload>,
+) -> impl IntoResponse {
+    if let Some(job_store) = app_state.job_store {
+        let job_id = job_queue::submit_job(job_store, payload.operation, payload.data);
+        Json(SubmitJobResponse { job_id })
+    } else {
+        Json(SubmitJobResponse { job_id: "error:job_queue_disabled".to_string() })
+    }
+}
+
+#[cfg(feature = "job-queue")]
+#[derive(Serialize)]
+struct JobStatusResponse {
+    status: String,
+    error: Option<String>,
+}
+
+#[cfg(feature = "job-queue")]
+async fn get_job_status_handler(
+    axum::extract::State(app_state): axum::extract::State<AppState>,
+    axum::extract::Path(job_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if let Some(job_store) = app_state.job_store {
+        if let Some((status, error)) = job_queue::get_job_status(job_store, &job_id) {
+            let status_str = match status {
+                job_queue::JobStatus::Pending => "pending",
+                job_queue::JobStatus::Processing => "processing",
+                job_queue::JobStatus::Completed => "completed",
+                job_queue::JobStatus::Failed => "failed",
+            };
+            Json(JobStatusResponse {
+                status: status_str.to_string(),
+                error,
+            })
+        } else {
+            Json(JobStatusResponse {
+                status: "not_found".to_string(),
+                error: Some("Job not found".to_string()),
+            })
+        }
+    } else {
+        Json(JobStatusResponse {
+            status: "error".to_string(),
+            error: Some("Job queue disabled".to_string()),
+        })
+    }
+}
+
+#[cfg(feature = "job-queue")]
+#[derive(Serialize)]
+struct JobResultResponse {
+    result: Option<String>,
+}
+
+#[cfg(feature = "job-queue")]
+async fn get_job_result_handler(
+    axum::extract::State(app_state): axum::extract::State<AppState>,
+    axum::extract::Path(job_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if let Some(job_store) = app_state.job_store {
+        let result = job_queue::get_job_result(job_store, &job_id);
+        Json(JobResultResponse { result })
+    } else {
+        Json(JobResultResponse { result: None })
+    }
+}
+
+#[cfg(feature = "job-queue")]
+#[derive(Serialize)]
+struct ListJobsResponse {
+    jobs: Vec<job_queue::Job>,
+}
+
+#[cfg(feature = "job-queue")]
+async fn list_jobs_handler(
+    axum::extract::State(app_state): axum::extract::State<AppState>,
+) -> impl IntoResponse {
+    if let Some(job_store) = app_state.job_store {
+        let jobs = job_queue::list_jobs(job_store);
+        Json(ListJobsResponse { jobs })
+    } else {
+        Json(ListJobsResponse { jobs: vec![] })
+    }
+}
+
 async fn json_to_toon_handler(
-    axum::extract::State(cache_state): axum::extract::State<CacheState>,
+    axum::extract::State(app_state): axum::extract::State<AppState>,
     Json(payload): Json<ConvertPayload>,
 ) -> impl IntoResponse {
+    let cache_state = app_state.cache;
     let cache_key = format!("toonify:json_to_toon:{}", payload.data);
     
     // Try distributed cache first
@@ -357,9 +483,10 @@ async fn json_to_toon_handler(
 }
 
 async fn toon_to_json_handler(
-    axum::extract::State(cache_state): axum::extract::State<CacheState>,
+    axum::extract::State(app_state): axum::extract::State<AppState>,
     Json(payload): Json<ConvertPayload>,
 ) -> impl IntoResponse {
+    let cache_state = app_state.cache;
     let cache_key = format!("toonify:toon_to_json:{}", payload.data);
     
     // Try distributed cache first
@@ -1103,7 +1230,7 @@ fn process_file(
     };
     
     // Detect format if not specified
-    let source_format = if let Some(ref f) = from {
+    let source_format = if let Some(f) = from.as_ref() {
         f.as_str()
     } else {
         match detect_format(&content) {
@@ -1119,7 +1246,7 @@ fn process_file(
     eprintln!("[BATCH] Source format: {}", source_format);
     
     // Determine target format
-    let target_format = if let Some(ref t) = to {
+    let target_format = if let Some(t) = to.as_ref() {
         t.as_str()
     } else {
         // Auto-detect target: if source is JSON, target is TOON, and vice versa
@@ -1291,13 +1418,13 @@ fn run_watch(
                             
                             let content = fs::read_to_string(&file_path)?;
                             
-                            let source_format = if let Some(ref f) = from {
+                            let source_format = if let Some(f) = from.as_ref() {
                                 f.as_str()
                             } else {
                                 detect_format(&content)?
                             };
                             
-                            let target_format = if let Some(ref t) = to {
+                            let target_format = if let Some(t) = to.as_ref() {
                                 t.as_str()
                             } else {
                                 if source_format == "json" { "toon" } else { "json" }
@@ -1377,7 +1504,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_watch(input_dir, output_dir, from, to, pattern)?;
             Ok(())
         }
-        Some(Commands::Serve { cache_size, memcached, valkey, cache_ttl }) => {
+        Some(Commands::Serve { cache_size, memcached, valkey, cache_ttl, enable_job_queue, workers, job_queue_backend }) => {
             // Server mode
     tracing_subscriber::fmt::init();
 
@@ -1450,11 +1577,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lru: cache,
     };
     
-    let app = Router::new()
+    // Initialize job queue if enabled
+    #[cfg(feature = "job-queue")]
+    let job_store = if enable_job_queue {
+        eprintln!("[JOB QUEUE] Enabled with {} workers", workers);
+        let store = if let Some(backend) = job_queue_backend {
+            if backend.starts_with("redis://") {
+                eprintln!("[JOB QUEUE] Using Redis backend: {}", backend);
+                // For now, use memory store. Redis implementation would go here.
+                job_queue::create_job_store()
+            } else {
+                eprintln!("[JOB QUEUE] Using in-memory backend");
+                job_queue::create_job_store()
+            }
+        } else {
+            eprintln!("[JOB QUEUE] Using in-memory backend");
+            job_queue::create_job_store()
+        };
+        
+        // Start worker threads
+        job_queue::start_workers(Arc::clone(&store), workers);
+        Some(store)
+    } else {
+        None
+    };
+    
+    // Create combined app state
+    #[cfg(feature = "job-queue")]
+    let app_state = AppState {
+        cache: cache_state,
+        job_store,
+    };
+    
+    #[cfg(not(feature = "job-queue"))]
+    let app_state = AppState {
+        cache: cache_state,
+    };
+    
+    let mut app = Router::new()
         .route("/", get(health_check))
         .route("/json-to-toon", post(json_to_toon_handler))
-                .route("/toon-to-json", post(toon_to_json_handler))
-                .with_state(cache_state);
+                .route("/toon-to-json", post(toon_to_json_handler));
+    
+    // Add job queue routes if enabled
+    #[cfg(feature = "job-queue")]
+    if enable_job_queue {
+        app = app
+            .route("/jobs/submit", post(submit_job_handler))
+            .route("/jobs/:job_id/status", get(get_job_status_handler))
+            .route("/jobs/:job_id/result", get(get_job_result_handler))
+            .route("/jobs", get(list_jobs_handler));
+    }
+    
+    let app = app.with_state(app_state);
             
             // Bind with custom socket options for better concurrency
             let socket = tokio::net::TcpSocket::new_v4()?;
@@ -1495,6 +1670,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 lru: None,
             };
             
+            #[cfg(feature = "job-queue")]
+            let app_state = AppState {
+                cache: cache_state,
+                job_store: None,
+            };
+            
+            #[cfg(not(feature = "job-queue"))]
+            let app_state = AppState {
+                cache: cache_state,
+            };
+            
             let grpc_service = ConverterServiceServer::new(ConverterServiceImpl);
             
             tokio::spawn(async move {
@@ -1510,7 +1696,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route("/", get(health_check))
                 .route("/json-to-toon", post(json_to_toon_handler))
                 .route("/toon-to-json", post(toon_to_json_handler))
-                .with_state(cache_state);
+                .with_state(app_state);
             
             // Bind with custom socket options for better concurrency
             let socket = tokio::net::TcpSocket::new_v4()?;
