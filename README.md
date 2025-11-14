@@ -6,7 +6,7 @@
 
 [![Tech Stack](https://img.shields.io/badge/stack-Rust%20|%20Axum%20|%20gRPC%20|%20UniFFI-orange)](.)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue)](./bindings/python)
-[![Tests](https://img.shields.io/badge/tests-30%20passing-brightgreen)](./tests)
+[![Tests](https://img.shields.io/badge/tests-35%20passing-brightgreen)](./tests)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ---
@@ -144,6 +144,10 @@ echo "users[1]{id,name}:\n1,Alice" | toonify compress > compressed.gz
 # Decompress TOON data
 toonify decompress --input data.toon.gz --output data.toon
 cat compressed.gz | toonify decompress > data.toon
+
+# Validate TOON against schema
+toonify validate --schema schema.json --input data.toon
+cat data.toon | toonify validate --schema schema.json
 
 # Start API server (gRPC + REST)
 toonify serve
@@ -322,7 +326,7 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 - Detailed error messages with line/column information
 - Support for complex nested structures
 - Handles edge cases (colons in values, nested arrays)
-- Validated by 30 comprehensive tests
+- Validated by 35 comprehensive tests
 
 **Test Coverage:**
 
@@ -334,14 +338,78 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 | **docker_test** | 6 tests | Dockerfile, image build, container run |
 | **streaming_test** | 5 tests | HTTP REST API, concurrent requests |
 | **compression_test** | 5 tests | Gzip compress/decompress, roundtrips |
+| **validation_test** | 5 tests | Schema validation, type checking, constraints |
 
 ```bash
 # Run all tests
 cargo test
 
 # Output:
-# running 30 tests
-# test result: ok. 30 passed; 0 failed
+# running 35 tests
+# test result: ok. 35 passed; 0 failed
+```
+
+### [#] Schema Validation
+
+**Validate TOON data against JSON schemas:**
+
+```bash
+# Create a schema
+cat > schema.json << 'EOF'
+{
+  "users": {
+    "type": "array",
+    "fields": ["id", "name", "email"],
+    "field_types": {
+      "id": "number",
+      "name": "string",
+      "email": "string"
+    },
+    "min_items": 1,
+    "max_items": 100
+  }
+}
+EOF
+
+# Validate TOON file
+toonify validate --schema schema.json --input data.toon
+
+# Validate from stdin
+cat data.toon | toonify validate --schema schema.json
+```
+
+**Schema Features:**
+- **Field validation**: Ensure all required fields are present
+- **Type checking**: Validate field types (string, number, boolean, null)
+- **Array constraints**: Enforce min/max item counts
+- **Multiple entities**: Validate complex multi-table TOON structures
+- **Detailed errors**: Clear error messages with entity and field names
+
+**Example Schema:**
+```json
+{
+  "products": {
+    "type": "array",
+    "fields": ["sku", "name", "price", "category"],
+    "field_types": {
+      "sku": "string",
+      "name": "string",
+      "price": "number",
+      "category": "string"
+    },
+    "min_items": 1
+  }
+}
+```
+
+**Validation Output:**
+```
+✓ TOON data is valid according to schema
+```
+
+Or on error:
+```
+Error: Item 0 in 'products': field 'price' has wrong type (expected number, got string)
 ```
 
 ### [*] Compression Support
@@ -433,7 +501,8 @@ toonify/
 │   ├── cli_test.rs          # CLI integration tests (5)
 │   ├── docker_test.rs       # Docker tests (6)
 │   ├── streaming_test.rs    # HTTP API tests (5)
-│   └── compression_test.rs  # Compression tests (5)
+│   ├── compression_test.rs  # Compression tests (5)
+│   └── validation_test.rs   # Schema validation tests (5)
 ├── benches/
 │   └── conversion_bench.rs  # Criterion benchmarks
 ├── examples/
@@ -458,6 +527,7 @@ cargo test --test roundtrip_test
 cargo test --test cli_test
 cargo test --test streaming_test
 cargo test --test compression_test
+cargo test --test validation_test
 
 # Run with output
 cargo test -- --nocapture
@@ -587,12 +657,13 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 - [x] Benchmarks (Criterion-based performance tests)
 - [x] Streaming API (HTTP REST with event-based tests)
 - [x] Compression support (`toonify compress`, `toonify decompress`)
+- [x] Schema validation (`toonify validate`)
 
 **Phase 5 (Planned):**
 - [ ] VS Code extension
-- [ ] TOON Schema validation
 - [ ] Cloud-hosted API
 - [ ] WebAssembly bindings
+- [ ] Advanced schema features (regex, ranges, custom validators)
 
 ## Known Issues
 

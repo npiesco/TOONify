@@ -58,6 +58,10 @@ path = "tests/streaming_test.rs"
 name = "compression_test"
 path = "tests/compression_test.rs"
 
+[[test]]
+name = "validation_test"
+path = "tests/validation_test.rs"
+
 [[bench]]
 name = "conversion_bench"
 harness = false

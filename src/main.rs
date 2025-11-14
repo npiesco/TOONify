@@ -66,6 +66,16 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Validate TOON data against a schema
+    Validate {
+        /// Schema file path (JSON format)
+        #[arg(short, long)]
+        schema: PathBuf,
+        
+        /// Input TOON file path (omit for stdin)
+        #[arg(short, long)]
+        input: Option<PathBuf>,
+    },
     /// Start the API server (gRPC + REST)
     Serve,
 }
@@ -270,6 +280,193 @@ fn run_decompress(input: Option<PathBuf>, output: Option<PathBuf>) -> Result<(),
     Ok(())
 }
 
+fn run_validate(schema_path: PathBuf, input: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("[VALIDATE] Starting validation...");
+    
+    // Read schema
+    eprintln!("[VALIDATE] Reading schema from: {:?}", schema_path);
+    let schema_content = fs::read_to_string(&schema_path)?;
+    let schema: serde_json::Value = serde_json::from_str(&schema_content)
+        .map_err(|e| format!("Invalid schema JSON: {}", e))?;
+    
+    eprintln!("[VALIDATE] Schema loaded successfully");
+    
+    // Read TOON input
+    let toon_data = if let Some(input_path) = input {
+        eprintln!("[VALIDATE] Reading TOON from file: {:?}", input_path);
+        fs::read_to_string(&input_path)?
+    } else {
+        eprintln!("[VALIDATE] Reading TOON from STDIN");
+        let mut buffer = String::new();
+        io::stdin().read_to_string(&mut buffer)?;
+        buffer
+    };
+    
+    eprintln!("[VALIDATE] TOON data size: {} bytes", toon_data.len());
+    
+    // Convert TOON to JSON for validation
+    eprintln!("[VALIDATE] Parsing TOON data...");
+    let json_value = converter::toon_to_json(&toon_data)
+        .map_err(|e| format!("Failed to parse TOON: {}", e))?;
+    
+    let parsed_value: serde_json::Value = serde_json::from_str(&json_value)?;
+    eprintln!("[VALIDATE] TOON parsed successfully");
+    
+    // Validate against schema
+    eprintln!("[VALIDATE] Validating against schema...");
+    validate_value(&parsed_value, &schema)?;
+    
+    eprintln!("[VALIDATE] ✓ Validation passed!");
+    println!("✓ TOON data is valid according to schema");
+    
+    Ok(())
+}
+
+fn validate_value(value: &serde_json::Value, schema: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("[VALIDATE] Validating data structure...");
+    
+    let schema_obj = schema.as_object()
+        .ok_or("Schema must be a JSON object")?;
+    
+    let value_obj = value.as_object()
+        .ok_or("TOON data must represent an object")?;
+    
+    // Validate each entity in schema
+    for (entity_name, entity_schema) in schema_obj {
+        eprintln!("[VALIDATE] Validating entity: {}", entity_name);
+        
+        if !value_obj.contains_key(entity_name) {
+            return Err(format!("Missing entity '{}' in TOON data", entity_name).into());
+        }
+        
+        let entity_value = &value_obj[entity_name];
+        validate_entity(entity_name, entity_value, entity_schema)?;
+    }
+    
+    eprintln!("[VALIDATE] All entities validated successfully");
+    Ok(())
+}
+
+fn validate_entity(name: &str, value: &serde_json::Value, schema: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+    let schema_obj = schema.as_object()
+        .ok_or(format!("Schema for '{}' must be an object", name))?;
+    
+    // Check type
+    let entity_type = schema_obj.get("type")
+        .and_then(|v| v.as_str())
+        .ok_or(format!("Schema for '{}' must have 'type' field", name))?;
+    
+    eprintln!("[VALIDATE] Entity '{}' type: {}", name, entity_type);
+    
+    match entity_type {
+        "array" => {
+            let array = value.as_array()
+                .ok_or(format!("Entity '{}' must be an array", name))?;
+            
+            eprintln!("[VALIDATE] Array '{}' has {} items", name, array.len());
+            
+            // Check min/max items
+            if let Some(min_items) = schema_obj.get("min_items").and_then(|v| v.as_u64()) {
+                eprintln!("[VALIDATE] Checking min_items: {} (actual: {})", min_items, array.len());
+                if (array.len() as u64) < min_items {
+                    return Err(format!(
+                        "Entity '{}' has {} items but minimum is {}",
+                        name, array.len(), min_items
+                    ).into());
+                }
+            }
+            
+            if let Some(max_items) = schema_obj.get("max_items").and_then(|v| v.as_u64()) {
+                eprintln!("[VALIDATE] Checking max_items: {} (actual: {})", max_items, array.len());
+                if (array.len() as u64) > max_items {
+                    return Err(format!(
+                        "Entity '{}' has {} items but maximum is {}",
+                        name, array.len(), max_items
+                    ).into());
+                }
+            }
+            
+            // Get required fields
+            let required_fields = schema_obj.get("fields")
+                .and_then(|v| v.as_array())
+                .ok_or(format!("Schema for '{}' must have 'fields' array", name))?;
+            
+            let required_field_names: Vec<String> = required_fields
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            
+            eprintln!("[VALIDATE] Required fields: {:?}", required_field_names);
+            
+            // Get field types if specified
+            let field_types = schema_obj.get("field_types")
+                .and_then(|v| v.as_object());
+            
+            // Validate each item in array
+            for (idx, item) in array.iter().enumerate() {
+                eprintln!("[VALIDATE] Validating item {}", idx);
+                
+                let item_obj = item.as_object()
+                    .ok_or(format!("Item {} in '{}' must be an object", idx, name))?;
+                
+                // Check all required fields are present
+                for field_name in &required_field_names {
+                    if !item_obj.contains_key(field_name) {
+                        return Err(format!(
+                            "Item {} in '{}' is missing required field '{}'",
+                            idx, name, field_name
+                        ).into());
+                    }
+                    
+                    // Check field type if specified
+                    if let Some(types) = field_types {
+                        if let Some(expected_type) = types.get(field_name).and_then(|v| v.as_str()) {
+                            let field_value = &item_obj[field_name];
+                            validate_field_type(name, idx, field_name, field_value, expected_type)?;
+                        }
+                    }
+                }
+            }
+            
+            eprintln!("[VALIDATE] Array '{}' validated successfully", name);
+        }
+        _ => {
+            return Err(format!("Unsupported entity type: {}", entity_type).into());
+        }
+    }
+    
+    Ok(())
+}
+
+fn validate_field_type(entity: &str, idx: usize, field: &str, value: &serde_json::Value, expected_type: &str) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("[VALIDATE] Checking field '{}' type: expected {}, got {:?}", field, expected_type, value);
+    
+    let matches = match expected_type {
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "boolean" => value.is_boolean(),
+        "null" => value.is_null(),
+        _ => return Err(format!("Unknown type: {}", expected_type).into()),
+    };
+    
+    if !matches {
+        return Err(format!(
+            "Item {} in '{}': field '{}' has wrong type (expected {}, got {})",
+            idx,
+            entity,
+            field,
+            expected_type,
+            if value.is_string() { "string" }
+            else if value.is_number() { "number" }
+            else if value.is_boolean() { "boolean" }
+            else if value.is_null() { "null" }
+            else { "unknown" }
+        ).into());
+    }
+    
+    Ok(())
+}
+
 fn run_convert(input: String, output: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("[CLI] Reading input...");
     
@@ -340,6 +537,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Decompress { input, output }) => {
             // CLI mode - decompress data
             run_decompress(input, output)?;
+            Ok(())
+        }
+        Some(Commands::Validate { schema, input }) => {
+            // CLI mode - validate TOON against schema
+            run_validate(schema, input)?;
             Ok(())
         }
         Some(Commands::Serve) | None => {
