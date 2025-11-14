@@ -20,6 +20,8 @@ use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder as GzEncoderWrite;
 use glob::glob;
+use notify::{Watcher, RecursiveMode, Event, event::{CreateKind, ModifyKind}, EventKind};
+use std::sync::mpsc::channel;
 
 pub mod pb {
     tonic::include_proto!("converter");
@@ -102,6 +104,28 @@ enum Commands {
         /// Process subdirectories recursively
         #[arg(short, long)]
         recursive: bool,
+    },
+    /// Watch directory and auto-convert files on change
+    Watch {
+        /// Input directory to watch
+        #[arg(short, long)]
+        input_dir: PathBuf,
+        
+        /// Output directory for converted files
+        #[arg(short, long)]
+        output_dir: PathBuf,
+        
+        /// Source format (json or toon, auto-detect if omitted)
+        #[arg(long)]
+        from: Option<String>,
+        
+        /// Target format (json or toon, auto-detect if omitted)
+        #[arg(long)]
+        to: Option<String>,
+        
+        /// File pattern (e.g., "*.json", defaults to all files)
+        #[arg(short, long)]
+        pattern: Option<String>,
     },
     /// Start the API server (gRPC + REST)
     Serve,
@@ -726,6 +750,154 @@ fn run_batch(
     Ok(())
 }
 
+fn run_watch(
+    input_dir: PathBuf,
+    output_dir: PathBuf,
+    from: Option<String>,
+    to: Option<String>,
+    pattern: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("[WATCH] Starting watch mode...");
+    eprintln!("[WATCH] Watching directory: {:?}", input_dir);
+    eprintln!("[WATCH] Output directory: {:?}", output_dir);
+    
+    if !input_dir.exists() {
+        return Err(format!("Input directory does not exist: {:?}", input_dir).into());
+    }
+    
+    // Create output directory
+    fs::create_dir_all(&output_dir)?;
+    eprintln!("[WATCH] Output directory created/verified");
+    
+    // Canonicalize paths to handle symlinks like /tmp -> /private/tmp on macOS
+    let input_dir = input_dir.canonicalize()?;
+    let output_dir = output_dir.canonicalize()?;
+    eprintln!("[WATCH] Canonical input: {:?}", input_dir);
+    eprintln!("[WATCH] Canonical output: {:?}", output_dir);
+    
+    
+    // Create channel for file system events
+    let (tx, rx) = channel();
+    
+    // Create watcher
+    let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        if let Ok(event) = res {
+            let _ = tx.send(event);
+        }
+    })?;
+    
+    // Watch only the input directory (not output)
+    watcher.watch(&input_dir, RecursiveMode::Recursive)?;
+    
+    eprintln!("[WATCH] Monitoring for file changes... (Press Ctrl+C to stop)");
+    eprintln!("[WATCH] Input: {:?}", input_dir);
+    eprintln!("[WATCH] Output: {:?}", output_dir);
+    println!("Watch mode active. Monitoring {:?} for changes.", input_dir);
+    
+    // Process file system events
+    loop {
+        match rx.recv() {
+            Ok(event) => {
+                eprintln!("[WATCH] Event: {:?}", event.kind);
+                
+                // Handle create and modify events
+                let should_process = matches!(
+                    event.kind,
+                    EventKind::Create(CreateKind::File) | 
+                    EventKind::Modify(ModifyKind::Data(_)) |
+                    EventKind::Modify(ModifyKind::Any)
+                );
+                
+                if should_process {
+                    for file_path in event.paths {
+                        // Skip non-files or files in output directory
+                        if !file_path.is_file() || file_path.starts_with(&output_dir) {
+                            continue;
+                        }
+                        
+                        // Check pattern match
+                        let matches = if let Some(ref pat) = pattern {
+                            if let Some(filename) = file_path.file_name().and_then(|n| n.to_str()) {
+                                if pat.contains('*') {
+                                    let pat_parts: Vec<&str> = pat.split('*').collect();
+                                    if pat_parts.len() == 2 {
+                                        filename.starts_with(pat_parts[0]) && filename.ends_with(pat_parts[1])
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    filename == pat
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            true
+                        };
+                        
+                        if !matches {
+                            continue;
+                        }
+                        
+                        eprintln!("[WATCH] File changed: {:?}", file_path);
+                        
+                        // Convert file
+                        match (|| -> Result<(), Box<dyn std::error::Error>> {
+                            eprintln!("[WATCH] Processing: {:?}", file_path);
+                            
+                            let content = fs::read_to_string(&file_path)?;
+                            
+                            let source_format = if let Some(ref f) = from {
+                                f.as_str()
+                            } else {
+                                detect_format(&content)?
+                            };
+                            
+                            let target_format = if let Some(ref t) = to {
+                                t.as_str()
+                            } else {
+                                if source_format == "json" { "toon" } else { "json" }
+                            };
+                            
+                            eprintln!("[WATCH] Format: {} -> {}", source_format, target_format);
+                            
+                            let converted = match (source_format, target_format) {
+                                ("json", "toon") => converter::json_to_toon(&content),
+                                ("toon", "json") => converter::toon_to_json(&content),
+                                ("json", "json") | ("toon", "toon") => Ok(content),
+                                _ => return Err(format!("Unsupported conversion: {} -> {}", source_format, target_format).into()),
+                            }?;
+                            
+                            let relative_path = file_path.strip_prefix(&input_dir).unwrap_or(&file_path);
+                            let mut output_path = output_dir.join(relative_path);
+                            let new_extension = if target_format == "json" { "json" } else { "toon" };
+                            output_path.set_extension(new_extension);
+                            
+                            if let Some(parent) = output_path.parent() {
+                                fs::create_dir_all(parent)?;
+                            }
+                            
+                            fs::write(&output_path, converted)?;
+                            eprintln!("[WATCH] ✓ Converted: {:?} -> {:?}", file_path, output_path);
+                            
+                            Ok(())
+                        })() {
+                            Ok(_) => {},
+                            Err(e) => eprintln!("[WATCH] Error converting {:?}: {}", file_path, e),
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[WATCH] Watch error: {}", e);
+                break;
+            }
+        }
+    }
+    
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -754,6 +926,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Batch { input_dir, output_dir, from, to, pattern, recursive }) => {
             // CLI mode - batch convert files
             run_batch(input_dir, output_dir, from, to, pattern, recursive)?;
+            Ok(())
+        }
+        Some(Commands::Watch { input_dir, output_dir, from, to, pattern }) => {
+            // CLI mode - watch directory for changes
+            run_watch(input_dir, output_dir, from, to, pattern)?;
             Ok(())
         }
         Some(Commands::Serve) | None => {

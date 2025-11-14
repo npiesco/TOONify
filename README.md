@@ -153,6 +153,10 @@ toonify batch --input-dir ./data --output-dir ./converted
 toonify batch --input-dir ./json_files --output-dir ./toon_files --pattern "*.json"
 toonify batch --input-dir ./project --output-dir ./output --recursive
 
+# Watch directory and auto-convert on file changes
+toonify watch --input-dir ./source --output-dir ./output
+toonify watch --input-dir ./data --output-dir ./converted --pattern "*.json"
+
 # Start API server (gRPC + REST)
 toonify serve
 ```
@@ -344,6 +348,7 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 | **compression_test** | Gzip compress/decompress, roundtrips |
 | **validation_test** | Schema validation, type checking, constraints |
 | **batch_test** | Batch conversion, patterns, recursive |
+| **watch_test** | File system monitoring, auto-conversion |
 
 ```bash
 # Run all tests
@@ -473,6 +478,63 @@ Processed 150 files (148 successful, 2 failed)
 - Batch compress/optimize API response archives
 - Migrate legacy JSON configurations to TOON
 
+### [>] Watch Mode
+
+**Automatically convert files when they change:**
+
+```bash
+# Watch directory for changes
+toonify watch --input-dir ./source --output-dir ./output
+
+# Watch with pattern filtering
+toonify watch \
+  --input-dir ./data \
+  --output-dir ./converted \
+  --pattern "*.json"
+
+# Watch with format specification
+toonify watch \
+  --input-dir ./json_data \
+  --output-dir ./toon_data \
+  --from json \
+  --to toon
+```
+
+**Features:**
+- **File system monitoring**: Real-time detection of file changes using native OS events
+- **Auto-conversion**: Instantly converts files when created or modified
+- **Pattern filtering**: Watch only specific file types
+- **Separate directories**: Prevents infinite loops by keeping input/output separate
+- **Error resilience**: Continues watching even if individual conversions fail
+- **Cross-platform**: Works on macOS, Linux, and Windows
+
+**Example Output:**
+```
+[WATCH] Starting watch mode...
+[WATCH] Watching directory: "/data/source"
+[WATCH] Output directory: "/data/output"
+[WATCH] Monitoring for file changes... (Press Ctrl+C to stop)
+
+[WATCH] Event: Create(File)
+[WATCH] File changed: "/data/source/users.json"
+[WATCH] Processing: "/data/source/users.json"
+[WATCH] Format: json -> toon
+[WATCH] ✓ Converted: "/data/source/users.json" -> "/data/output/users.toon"
+
+[WATCH] Event: Modify(Data(Content))
+[WATCH] File changed: "/data/source/users.json"
+[WATCH] Processing: "/data/source/users.json"
+[WATCH] Format: json -> toon
+[WATCH] ✓ Converted: "/data/source/users.json" -> "/data/output/users.toon"
+```
+
+**Use Cases:**
+- Development workflows with automatic conversion
+- Hot-reload for configuration files
+- Real-time data pipeline processing
+- CI/CD integration for format validation
+- Live migration of incoming data files
+
 ### [*] Compression Support
 
 **Built-in gzip compression for TOON data:**
@@ -564,7 +626,8 @@ toonify/
 │   ├── streaming_test.rs    # HTTP API tests
 │   ├── compression_test.rs  # Compression tests
 │   ├── validation_test.rs   # Schema validation tests
-│   └── batch_test.rs        # Batch processing tests
+│   ├── batch_test.rs        # Batch processing tests
+│   └── watch_test.rs        # Watch mode tests
 ├── benches/
 │   └── conversion_bench.rs  # Criterion benchmarks
 ├── examples/
@@ -591,6 +654,7 @@ cargo test --test streaming_test
 cargo test --test compression_test
 cargo test --test validation_test
 cargo test --test batch_test
+cargo test --test watch_test
 
 # Run with output
 cargo test -- --nocapture
@@ -722,6 +786,7 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 - [x] Compression support (`toonify compress`, `toonify decompress`)
 - [x] Schema validation (`toonify validate`)
 - [x] Batch processing (`toonify batch`)
+- [x] Watch mode (`toonify watch` - auto-convert on file changes)
 
 **Phase 5 (Planned):**
 - [ ] VS Code extension
