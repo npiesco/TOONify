@@ -19,6 +19,7 @@ use tracing_subscriber;
 use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder as GzEncoderWrite;
+use glob::glob;
 
 pub mod pb {
     tonic::include_proto!("converter");
@@ -75,6 +76,32 @@ enum Commands {
         /// Input TOON file path (omit for stdin)
         #[arg(short, long)]
         input: Option<PathBuf>,
+    },
+    /// Batch convert multiple files in a directory
+    Batch {
+        /// Input directory containing files to convert
+        #[arg(short, long)]
+        input_dir: PathBuf,
+        
+        /// Output directory for converted files
+        #[arg(short, long)]
+        output_dir: PathBuf,
+        
+        /// Source format (json or toon, auto-detect if omitted)
+        #[arg(long)]
+        from: Option<String>,
+        
+        /// Target format (json or toon, auto-detect if omitted)
+        #[arg(long)]
+        to: Option<String>,
+        
+        /// File pattern (e.g., "*.json", defaults to all files)
+        #[arg(short, long)]
+        pattern: Option<String>,
+        
+        /// Process subdirectories recursively
+        #[arg(short, long)]
+        recursive: bool,
     },
     /// Start the API server (gRPC + REST)
     Serve,
@@ -519,6 +546,186 @@ fn run_convert(input: String, output: Option<PathBuf>) -> Result<(), Box<dyn std
     Ok(())
 }
 
+fn run_batch(
+    input_dir: PathBuf,
+    output_dir: PathBuf,
+    from: Option<String>,
+    to: Option<String>,
+    pattern: Option<String>,
+    recursive: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("[BATCH] Starting batch conversion...");
+    eprintln!("[BATCH] Input directory: {:?}", input_dir);
+    eprintln!("[BATCH] Output directory: {:?}", output_dir);
+    eprintln!("[BATCH] Recursive: {}", recursive);
+    
+    if !input_dir.exists() {
+        return Err(format!("Input directory does not exist: {:?}", input_dir).into());
+    }
+    
+    // Create output directory if it doesn't exist
+    fs::create_dir_all(&output_dir)?;
+    eprintln!("[BATCH] Output directory created/verified");
+    
+    // Build glob pattern
+    let glob_pattern = if let Some(pat) = pattern {
+        eprintln!("[BATCH] Using pattern: {}", pat);
+        if recursive {
+            format!("{}/**/{}", input_dir.display(), pat)
+        } else {
+            format!("{}/{}", input_dir.display(), pat)
+        }
+    } else {
+        eprintln!("[BATCH] Using default pattern (all files)");
+        if recursive {
+            format!("{}/**/*", input_dir.display())
+        } else {
+            format!("{}/*", input_dir.display())
+        }
+    };
+    
+    eprintln!("[BATCH] Glob pattern: {}", glob_pattern);
+    
+    // Find all matching files
+    let mut files_to_process = Vec::new();
+    for entry in glob(&glob_pattern)? {
+        match entry {
+            Ok(path) => {
+                if path.is_file() {
+                    files_to_process.push(path);
+                }
+            }
+            Err(e) => eprintln!("[BATCH] Error reading path: {:?}", e),
+        }
+    }
+    
+    eprintln!("[BATCH] Found {} files to process", files_to_process.len());
+    
+    if files_to_process.is_empty() {
+        eprintln!("[BATCH] No files found matching pattern");
+        return Ok(());
+    }
+    
+    let mut successful = 0;
+    let mut failed = 0;
+    
+    for (idx, file_path) in files_to_process.iter().enumerate() {
+        eprintln!("[BATCH] Processing file {}/{}: {:?}", idx + 1, files_to_process.len(), file_path);
+        
+        // Read file
+        let content = match fs::read_to_string(file_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[BATCH] Failed to read file: {}", e);
+                failed += 1;
+                continue;
+            }
+        };
+        
+        // Detect format if not specified
+        let source_format = if let Some(ref f) = from {
+            f.as_str()
+        } else {
+            match detect_format(&content) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("[BATCH] Failed to detect format: {}", e);
+                    failed += 1;
+                    continue;
+                }
+            }
+        };
+        
+        eprintln!("[BATCH] Source format: {}", source_format);
+        
+        // Determine target format
+        let target_format = if let Some(ref t) = to {
+            t.as_str()
+        } else {
+            // Auto-detect target: if source is JSON, target is TOON, and vice versa
+            if source_format == "json" {
+                "toon"
+            } else {
+                "json"
+            }
+        };
+        
+        eprintln!("[BATCH] Target format: {}", target_format);
+        
+        // Convert
+        let converted = match (source_format, target_format) {
+            ("json", "toon") => converter::json_to_toon(&content),
+            ("toon", "json") => converter::toon_to_json(&content),
+            ("json", "json") | ("toon", "toon") => {
+                eprintln!("[BATCH] Source and target formats are the same, copying file");
+                Ok(content)
+            }
+            _ => {
+                eprintln!("[BATCH] Unsupported format combination: {} -> {}", source_format, target_format);
+                failed += 1;
+                continue;
+            }
+        };
+        
+        let converted_content = match converted {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[BATCH] Conversion failed: {}", e);
+                failed += 1;
+                continue;
+            }
+        };
+        
+        // Determine output path
+        let relative_path = file_path.strip_prefix(&input_dir)
+            .unwrap_or(file_path);
+        
+        let mut output_path = output_dir.join(relative_path);
+        
+        // Change extension based on target format
+        let new_extension = match target_format {
+            "json" => "json",
+            "toon" => "toon",
+            _ => "txt",
+        };
+        output_path.set_extension(new_extension);
+        
+        eprintln!("[BATCH] Output path: {:?}", output_path);
+        
+        // Create parent directories if needed
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        
+        // Write output
+        match fs::write(&output_path, converted_content) {
+            Ok(_) => {
+                eprintln!("[BATCH] ✓ Successfully converted: {:?}", file_path);
+                successful += 1;
+            }
+            Err(e) => {
+                eprintln!("[BATCH] Failed to write output: {}", e);
+                failed += 1;
+            }
+        }
+    }
+    
+    eprintln!("\n[BATCH] ==================== SUMMARY ====================");
+    eprintln!("[BATCH] Total files processed: {}", files_to_process.len());
+    eprintln!("[BATCH] Successful: {}", successful);
+    eprintln!("[BATCH] Failed: {}", failed);
+    eprintln!("[BATCH] ===================================================\n");
+    
+    println!("Batch conversion completed successfully!");
+    println!("Processed {} files ({} successful, {} failed)", files_to_process.len(), successful, failed);
+    
+    if failed > 0 {
+        return Err(format!("{} files failed to convert", failed).into());
+    }
+    
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
@@ -542,6 +749,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Validate { schema, input }) => {
             // CLI mode - validate TOON against schema
             run_validate(schema, input)?;
+            Ok(())
+        }
+        Some(Commands::Batch { input_dir, output_dir, from, to, pattern, recursive }) => {
+            // CLI mode - batch convert files
+            run_batch(input_dir, output_dir, from, to, pattern, recursive)?;
             Ok(())
         }
         Some(Commands::Serve) | None => {

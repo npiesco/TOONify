@@ -6,7 +6,6 @@
 
 [![Tech Stack](https://img.shields.io/badge/stack-Rust%20|%20Axum%20|%20gRPC%20|%20UniFFI-orange)](.)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue)](./bindings/python)
-[![Tests](https://img.shields.io/badge/tests-35%20passing-brightgreen)](./tests)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ---
@@ -148,6 +147,11 @@ cat compressed.gz | toonify decompress > data.toon
 # Validate TOON against schema
 toonify validate --schema schema.json --input data.toon
 cat data.toon | toonify validate --schema schema.json
+
+# Batch convert multiple files
+toonify batch --input-dir ./data --output-dir ./converted
+toonify batch --input-dir ./json_files --output-dir ./toon_files --pattern "*.json"
+toonify batch --input-dir ./project --output-dir ./output --recursive
 
 # Start API server (gRPC + REST)
 toonify serve
@@ -326,27 +330,24 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 - Detailed error messages with line/column information
 - Support for complex nested structures
 - Handles edge cases (colons in values, nested arrays)
-- Validated by 35 comprehensive tests
+- Comprehensive integration test coverage
 
 **Test Coverage:**
 
-| Test Suite | Tests | Purpose |
-|------------|-------|---------|
-| **roundtrip_test** | 6 tests | JSON ↔ TOON ↔ JSON preservation |
-| **edge_case_test** | 3 tests | Colons, special chars, nested data |
-| **cli_test** | 5 tests | CLI help, stdin/stdout, file I/O |
-| **docker_test** | 6 tests | Dockerfile, image build, container run |
-| **streaming_test** | 5 tests | HTTP REST API, concurrent requests |
-| **compression_test** | 5 tests | Gzip compress/decompress, roundtrips |
-| **validation_test** | 5 tests | Schema validation, type checking, constraints |
+| Test Suite | Purpose |
+|------------|---------|
+| **roundtrip_test** | JSON ↔ TOON ↔ JSON preservation |
+| **edge_case_test** | Colons, special chars, nested data |
+| **cli_test** | CLI help, stdin/stdout, file I/O |
+| **docker_test** | Dockerfile, image build, container run |
+| **streaming_test** | HTTP REST API, concurrent requests |
+| **compression_test** | Gzip compress/decompress, roundtrips |
+| **validation_test** | Schema validation, type checking, constraints |
+| **batch_test** | Batch conversion, patterns, recursive |
 
 ```bash
 # Run all tests
 cargo test
-
-# Output:
-# running 35 tests
-# test result: ok. 35 passed; 0 failed
 ```
 
 ### [#] Schema Validation
@@ -411,6 +412,66 @@ Or on error:
 ```
 Error: Item 0 in 'products': field 'price' has wrong type (expected number, got string)
 ```
+
+### [@] Batch Processing
+
+**Convert multiple files in one command:**
+
+```bash
+# Basic batch conversion (auto-detect format)
+toonify batch --input-dir ./data --output-dir ./converted
+
+# Convert specific file types
+toonify batch \
+  --input-dir ./json_files \
+  --output-dir ./toon_files \
+  --pattern "*.json"
+
+# Recursive directory processing
+toonify batch \
+  --input-dir ./project \
+  --output-dir ./output \
+  --recursive
+
+# Explicit format specification
+toonify batch \
+  --input-dir ./data \
+  --output-dir ./output \
+  --from json \
+  --to toon
+```
+
+**Features:**
+- **Auto-detection**: Automatically detects JSON vs TOON format
+- **Pattern matching**: Filter files by glob patterns (e.g., `*.json`, `*_data.toon`)
+- **Recursive**: Process entire directory trees
+- **Directory structure**: Preserves subdirectory hierarchy in output
+- **Detailed logging**: Progress updates for each file
+- **Statistics**: Reports successful/failed conversions
+- **Error handling**: Continues processing on individual file failures
+
+**Example Output:**
+```
+[BATCH] Starting batch conversion...
+[BATCH] Found 150 files to process
+[BATCH] Processing file 1/150: data/users.json
+[BATCH] ✓ Successfully converted: data/users.json
+...
+[BATCH] ==================== SUMMARY ====================
+[BATCH] Total files processed: 150
+[BATCH] Successful: 148
+[BATCH] Failed: 2
+[BATCH] ===================================================
+
+Batch conversion completed successfully!
+Processed 150 files (148 successful, 2 failed)
+```
+
+**Use Cases:**
+- Convert entire data export directories
+- Process large datasets for LLM training
+- Batch compress/optimize API response archives
+- Migrate legacy JSON configurations to TOON
 
 ### [*] Compression Support
 
@@ -496,13 +557,14 @@ toonify/
 │       ├── toonify.py       # Generated bindings
 │       └── libtoonify.dylib # Native library
 ├── tests/
-│   ├── roundtrip_test.rs    # Conversion tests (6)
-│   ├── edge_case_test.rs    # Edge cases (3)
-│   ├── cli_test.rs          # CLI integration tests (5)
-│   ├── docker_test.rs       # Docker tests (6)
-│   ├── streaming_test.rs    # HTTP API tests (5)
-│   ├── compression_test.rs  # Compression tests (5)
-│   └── validation_test.rs   # Schema validation tests (5)
+│   ├── roundtrip_test.rs    # Conversion tests
+│   ├── edge_case_test.rs    # Edge cases
+│   ├── cli_test.rs          # CLI integration tests
+│   ├── docker_test.rs       # Docker tests
+│   ├── streaming_test.rs    # HTTP API tests
+│   ├── compression_test.rs  # Compression tests
+│   ├── validation_test.rs   # Schema validation tests
+│   └── batch_test.rs        # Batch processing tests
 ├── benches/
 │   └── conversion_bench.rs  # Criterion benchmarks
 ├── examples/
@@ -528,6 +590,7 @@ cargo test --test cli_test
 cargo test --test streaming_test
 cargo test --test compression_test
 cargo test --test validation_test
+cargo test --test batch_test
 
 # Run with output
 cargo test -- --nocapture
@@ -658,6 +721,7 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 - [x] Streaming API (HTTP REST with event-based tests)
 - [x] Compression support (`toonify compress`, `toonify decompress`)
 - [x] Schema validation (`toonify validate`)
+- [x] Batch processing (`toonify batch`)
 
 **Phase 5 (Planned):**
 - [ ] VS Code extension
