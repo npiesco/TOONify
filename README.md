@@ -366,6 +366,7 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 | **wasm_test** | WASM build, wasm-pack, package generation |
 | **wasm.spec.ts** | Playwright browser tests (Chromium, Firefox, Safari) |
 | **npm_test** | npm package validation, local install, TypeScript defs |
+| **pypi_test** | PyPI package validation, sdist build, pip install, twine check |
 
 ```bash
 # Run all tests
@@ -879,6 +880,7 @@ cargo test --test watch_test
 cargo test --test cache_test
 cargo test --test wasm_test
 cargo test --test npm_test
+cargo test --test pypi_test
 
 # Run Playwright browser tests
 cd tests/wasm && npm test
@@ -1007,8 +1009,8 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 - [x] Python examples
 - [x] Documentation (PYTHON.md, UNIFFI_SETUP.md)
 
-**Phase 3 (In Progress):**
-- [ ] PyPI distribution
+**Phase 3 (Completed):**
+- [x] PyPI distribution (Python package ready for publishing)
 - [x] npm package (WASM)
 
 **Phase 4 (Completed):**

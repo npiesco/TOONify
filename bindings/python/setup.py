@@ -1,0 +1,56 @@
+from setuptools import setup
+import platform
+import os
+
+# Determine the library file name based on platform
+if platform.system() == "Darwin":
+    lib_name = "libtoonify.dylib"
+elif platform.system() == "Windows":
+    lib_name = "toonify.dll"
+else:
+    lib_name = "libtoonify.so"
+
+# Read the README file
+readme_path = os.path.join(os.path.dirname(__file__), "README.md")
+long_description = ""
+if os.path.exists(readme_path):
+    with open(readme_path, "r", encoding="utf-8") as f:
+        long_description = f.read()
+
+setup(
+    name="toonify",
+    version="0.1.0",
+    description="High-performance JSON ↔ TOON converter. Reduce LLM token usage by 30-60% with Rust-powered Python bindings.",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    author="TOONify Contributors",
+    author_email="",
+    license="MIT",
+    url="https://github.com/npiesco/TOONify",
+    project_urls={
+        "Bug Tracker": "https://github.com/npiesco/TOONify/issues",
+        "Documentation": "https://github.com/npiesco/TOONify#readme",
+        "Source Code": "https://github.com/npiesco/TOONify",
+    },
+    py_modules=["toonify"],
+    data_files=[(".", [lib_name])],
+    include_package_data=True,
+    python_requires=">=3.8",
+    keywords=["toon", "json", "converter", "llm", "ai", "token-optimization", "rust", "uniffi"],
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Rust",
+        "Topic :: Software Development :: Libraries",
+        "Topic :: Text Processing",
+        "Operating System :: OS Independent",
+    ],
+)
+

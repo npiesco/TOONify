@@ -108,6 +108,10 @@ path = "tests/wasm_test.rs"
 name = "npm_test"
 path = "tests/npm_test.rs"
 
+[[test]]
+name = "pypi_test"
+path = "tests/pypi_test.rs"
+
 [[bench]]
 name = "conversion_bench"
 harness = false
