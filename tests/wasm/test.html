@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOONify WASM Test</title>
+</head>
+<body>
+    <h1>TOONify WASM Test Page</h1>
+    <div id="status">Initializing...</div>
+    <div id="results"></div>
+
+    <script type="module">
+        async function runTests() {
+            const statusEl = document.getElementById('status');
+            const resultsEl = document.getElementById('results');
+            
+            try {
+                statusEl.textContent = 'Loading WASM module...';
+                
+                // Import and initialize WASM module
+                const wasmModule = await import('../../pkg/toonify.js');
+                await wasmModule.default();
+                const { json_to_toon, toon_to_json } = wasmModule;
+                
+                statusEl.textContent = 'WASM module loaded';
+                
+                // Test 1: JSON to TOON conversion
+                const testJson = JSON.stringify({ name: "Alice", age: 30 });
+                const toonResult = json_to_toon(testJson);
+                
+                document.body.setAttribute('data-json-to-toon-success', 'true');
+                document.body.setAttribute('data-toon-result', toonResult);
+                
+                resultsEl.innerHTML += `<div class="test-result" data-test="json-to-toon">
+                    <strong>✓ JSON to TOON:</strong><br>
+                    Input: ${testJson}<br>
+                    Output: ${toonResult}
+                </div>`;
+                
+                // Test 2: TOON to JSON conversion
+                // Generate valid TOON from JSON first
+                const testJson2 = JSON.stringify({ name: "Bob", age: 25 });
+                const generatedToon = json_to_toon(testJson2);
+                const jsonResult = toon_to_json(generatedToon);
+                
+                document.body.setAttribute('data-toon-to-json-success', 'true');
+                document.body.setAttribute('data-json-result', jsonResult);
+                
+                resultsEl.innerHTML += `<div class="test-result" data-test="toon-to-json">
+                    <strong>✓ TOON to JSON:</strong><br>
+                    Input: ${generatedToon}<br>
+                    Output: ${jsonResult}
+                </div>`;
+                
+                // Test 3: Roundtrip conversion
+                const originalJson = JSON.stringify({ city: "NYC", population: 8000000 });
+                const toToon = json_to_toon(originalJson);
+                const backToJson = toon_to_json(toToon);
+                
+                // Compare parsed objects instead of strings (key order may differ)
+                const roundtripSuccess = JSON.stringify(JSON.parse(originalJson)) === JSON.stringify(JSON.parse(backToJson));
+                document.body.setAttribute('data-roundtrip-success', roundtripSuccess.toString());
+                
+                resultsEl.innerHTML += `<div class="test-result" data-test="roundtrip">
+                    <strong>${roundtripSuccess ? '✓' : '✗'} Roundtrip:</strong><br>
+                    Original: ${originalJson}<br>
+                    To TOON: ${toToon}<br>
+                    Back to JSON: ${backToJson}<br>
+                    Match: ${roundtripSuccess}
+                </div>`;
+                
+                // Test 4: Error handling - invalid JSON
+                try {
+                    json_to_toon('invalid json{');
+                    document.body.setAttribute('data-error-handling-success', 'false');
+                    resultsEl.innerHTML += `<div class="test-result" data-test="error-handling">
+                        <strong>✗ Error Handling:</strong> Should have thrown error
+                    </div>`;
+                } catch (e) {
+                    document.body.setAttribute('data-error-handling-success', 'true');
+                    resultsEl.innerHTML += `<div class="test-result" data-test="error-handling">
+                        <strong>✓ Error Handling:</strong><br>
+                        Caught error: ${e}
+                    </div>`;
+                }
+                
+                // Test 5: Complex nested object
+                const complexJson = JSON.stringify({
+                    user: {
+                        name: "Charlie",
+                        roles: ["admin", "user"],
+                        metadata: { level: 5, active: true }
+                    }
+                });
+                const complexToon = json_to_toon(complexJson);
+                const complexBack = toon_to_json(complexToon);
+                
+                document.body.setAttribute('data-complex-success', 'true');
+                document.body.setAttribute('data-complex-result', complexBack);
+                
+                resultsEl.innerHTML += `<div class="test-result" data-test="complex">
+                    <strong>✓ Complex Object:</strong><br>
+                    TOON: ${complexToon}<br>
+                    Roundtrip JSON: ${complexBack}
+                </div>`;
+                
+                statusEl.textContent = 'All tests completed';
+                document.body.setAttribute('data-all-tests-complete', 'true');
+                
+            } catch (error) {
+                statusEl.textContent = 'Error: ' + error.message;
+                document.body.setAttribute('data-error', error.message);
+                console.error(error);
+            }
+        }
+
+        runTests();
+    </script>
+</body>
+</html>
+

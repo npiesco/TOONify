@@ -244,11 +244,11 @@ async fn json_to_toon_handler(
             }
             
             (
-                StatusCode::OK,
-                Json(ConvertResult {
-                    result: Some(result),
-                    error: None,
-                }),
+            StatusCode::OK,
+            Json(ConvertResult {
+                result: Some(result),
+                error: None,
+            }),
             )
         }
         Err(e) => (
@@ -297,11 +297,11 @@ async fn toon_to_json_handler(
             }
             
             (
-                StatusCode::OK,
-                Json(ConvertResult {
-                    result: Some(result),
-                    error: None,
-                }),
+            StatusCode::OK,
+            Json(ConvertResult {
+                result: Some(result),
+                error: None,
+            }),
             )
         }
         Err(e) => (
@@ -1264,8 +1264,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Serve { cache_size }) => {
             // Server mode
-            tracing_subscriber::fmt::init();
-            
+    tracing_subscriber::fmt::init();
+
             let grpc_addr: SocketAddr = "0.0.0.0:50051".parse()?;
             let http_addr: SocketAddr = "0.0.0.0:5000".parse()?;
             
@@ -1277,21 +1277,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("[CACHE] Disabled");
                 None
             };
-            
-            let grpc_service = ConverterServiceServer::new(ConverterServiceImpl);
-            
-            tokio::spawn(async move {
+
+    let grpc_service = ConverterServiceServer::new(ConverterServiceImpl);
+
+    tokio::spawn(async move {
                 eprintln!("[gRPC] Server listening on {}", grpc_addr);
-                Server::builder()
-                    .add_service(grpc_service)
-                    .serve(grpc_addr)
-                    .await
-                    .expect("gRPC server failed");
-            });
-            
-            let app = Router::new()
-                .route("/", get(health_check))
-                .route("/json-to-toon", post(json_to_toon_handler))
+        Server::builder()
+            .add_service(grpc_service)
+            .serve(grpc_addr)
+            .await
+            .expect("gRPC server failed");
+    });
+
+    let app = Router::new()
+        .route("/", get(health_check))
+        .route("/json-to-toon", post(json_to_toon_handler))
                 .route("/toon-to-json", post(toon_to_json_handler))
                 .with_state(cache);
             
@@ -1331,7 +1331,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Server::builder()
                     .add_service(grpc_service)
                     .serve(grpc_addr)
-                    .await
+        .await
                     .expect("gRPC server failed");
             });
             
@@ -1352,8 +1352,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("   GET  /            - Health check");
             eprintln!("   POST /json-to-toon - Convert JSON to TOON");
             eprintln!("   POST /toon-to-json - Convert TOON to JSON");
-            
-            axum::serve(listener, app)
+
+    axum::serve(listener, app)
                 .with_graceful_shutdown(async {
                     tokio::signal::ctrl_c().await.ok();
                 })
