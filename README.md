@@ -365,6 +365,7 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 | **cache_test** | LRU cache, eviction, cache hits/misses |
 | **wasm_test** | WASM build, wasm-pack, package generation |
 | **wasm.spec.ts** | Playwright browser tests (Chromium, Firefox, Safari) |
+| **npm_test** | npm package validation, local install, TypeScript defs |
 
 ```bash
 # Run all tests
@@ -877,6 +878,7 @@ cargo test --test batch_test
 cargo test --test watch_test
 cargo test --test cache_test
 cargo test --test wasm_test
+cargo test --test npm_test
 
 # Run Playwright browser tests
 cd tests/wasm && npm test
@@ -1007,7 +1009,7 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 
 **Phase 3 (In Progress):**
 - [ ] PyPI distribution
-- [ ] npm package (WASM)
+- [x] npm package (WASM)
 
 **Phase 4 (Completed):**
 - [x] CLI tool (`toonify convert`, `toonify serve`)

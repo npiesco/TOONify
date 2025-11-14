@@ -104,6 +104,10 @@ path = "tests/cache_test.rs"
 name = "wasm_test"
 path = "tests/wasm_test.rs"
 
+[[test]]
+name = "npm_test"
+path = "tests/npm_test.rs"
+
 [[bench]]
 name = "conversion_bench"
 harness = false
