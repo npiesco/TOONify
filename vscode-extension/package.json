@@ -1,0 +1,122 @@
+{
+  "name": "toonify",
+  "displayName": "TOONify",
+  "description": "JSON ↔ TOON format converter for VS Code. Reduce LLM token usage by 30-60%.",
+  "version": "0.1.0",
+  "publisher": "toonify",
+  "author": "TOONify Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/npiesco/TOONify.git"
+  },
+  "bugs": {
+    "url": "https://github.com/npiesco/TOONify/issues"
+  },
+  "homepage": "https://github.com/npiesco/TOONify",
+  "keywords": [
+    "json",
+    "toon",
+    "converter",
+    "llm",
+    "token-reduction",
+    "data-format",
+    "ai",
+    "optimization"
+  ],
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Formatters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:toonify.jsonToToon",
+    "onCommand:toonify.toonToJson",
+    "onLanguage:json",
+    "onLanguage:toon"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "toonify.jsonToToon",
+        "title": "TOONify: Convert JSON to TOON"
+      },
+      {
+        "command": "toonify.toonToJson",
+        "title": "TOONify: Convert TOON to JSON"
+      },
+      {
+        "command": "toonify.validateToon",
+        "title": "TOONify: Validate TOON"
+      },
+      {
+        "command": "toonify.formatToon",
+        "title": "TOONify: Format TOON"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "editorHasSelection",
+          "command": "toonify.jsonToToon",
+          "group": "toonify@1"
+        },
+        {
+          "when": "editorHasSelection",
+          "command": "toonify.toonToJson",
+          "group": "toonify@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "toonify.jsonToToon",
+        "key": "ctrl+alt+t",
+        "mac": "cmd+alt+t",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "toonify.toonToJson",
+        "key": "ctrl+alt+j",
+        "mac": "cmd+alt+j",
+        "when": "editorTextFocus"
+      }
+    ],
+    "languages": [
+      {
+        "id": "toon",
+        "aliases": ["TOON", "toon"],
+        "extensions": [".toon"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "toon",
+        "scopeName": "source.toon",
+        "path": "./syntaxes/toon.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}
+

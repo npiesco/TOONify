@@ -119,6 +119,10 @@ path = "tests/pypi_test.rs"
 name = "distributed_cache_test"
 path = "tests/distributed_cache_test.rs"
 
+[[test]]
+name = "vscode_extension_test"
+path = "tests/vscode_extension_test.rs"
+
 [[bench]]
 name = "conversion_bench"
 harness = false

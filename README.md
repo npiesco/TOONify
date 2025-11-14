@@ -370,6 +370,7 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 | **npm_test** | npm package validation, local install, TypeScript defs |
 | **pypi_test** | PyPI package validation, sdist build, pip install, twine check |
 | **distributed_cache_test** | Memcached & Valkey integration, TTL, persistence |
+| **vscode_extension_test** | VS Code extension packaging, TypeScript compilation, commands |
 
 ```bash
 # Run all tests
@@ -840,6 +841,59 @@ console.log("JSON:", jsonResult);
 - **Large payloads** (100KB): 10-30ms
 - Near-native Rust performance with minimal overhead
 
+### [V] VS Code Extension
+
+**Convert JSON ↔ TOON directly in your editor:**
+
+```bash
+# Install from source
+cd vscode-extension
+npm install
+npm run compile
+
+# Package for distribution
+npm run package
+```
+
+**Features:**
+- **Command Palette Integration**: Access via `Cmd+Shift+P`
+- **Keyboard Shortcuts**: `Cmd+Alt+T` (JSON→TOON), `Cmd+Alt+J` (TOON→JSON)
+- **Context Menu**: Right-click to convert selections
+- **Syntax Highlighting**: Full `.toon` file support with custom grammar
+- **Auto Format**: Format TOON files on save
+- **Validation**: Real-time syntax validation as you type
+- **WASM-Powered**: Uses the same high-performance WASM module as the npm package
+
+**Usage:**
+1. Open VS Code
+2. Open Command Palette (`Cmd+Shift+P`)
+3. Type "TOONify" to see available commands
+4. Select text or work with entire file
+5. Convert with one keystroke
+
+**Extension Commands:**
+- `toonify.jsonToToon` - Convert JSON to TOON
+- `toonify.toonToJson` - Convert TOON to JSON
+- `toonify.validateToon` - Validate TOON syntax
+- `toonify.formatToon` - Format TOON file
+
+**Language Support:**
+- Syntax highlighting for `.toon` files
+- Auto-closing brackets and quotes
+- Line comments with `#`
+- Folding support for multi-line structures
+
+**Installation (Local Development):**
+```bash
+# From extension directory
+cd vscode-extension
+npm install
+npm run compile
+
+# Install in VS Code
+code --install-extension toonify-0.1.0.vsix
+```
+
 ### [>] Token Efficiency
 
 **Real-world savings with LLM APIs:**
@@ -917,7 +971,19 @@ toonify/
 │   ├── toonify_bg.wasm      # Compiled WASM binary (132KB)
 │   ├── toonify.js           # JavaScript glue code
 │   ├── toonify.d.ts         # TypeScript definitions
-│   └── package.json         # npm package metadata
+│   ├── package.json         # npm package metadata
+│   └── README.md            # npm package documentation
+├── vscode-extension/
+│   ├── src/
+│   │   └── extension.ts     # Extension entry point
+│   ├── syntaxes/
+│   │   └── toon.tmLanguage.json  # TOON syntax highlighting
+│   ├── out/
+│   │   └── extension.js     # Compiled TypeScript
+│   ├── package.json         # VS Code extension manifest
+│   ├── tsconfig.json        # TypeScript configuration
+│   ├── README.md            # Extension documentation
+│   └── language-configuration.json  # Language features
 ├── benches/
 │   └── conversion_bench.rs  # Criterion benchmarks
 ├── examples/
@@ -951,6 +1017,7 @@ cargo test --test wasm_test
 cargo test --test npm_test
 cargo test --test pypi_test
 cargo test --test distributed_cache_test
+cargo test --test vscode_extension_test
 
 # Run Playwright browser tests
 cd tests/wasm && npm test
@@ -1100,7 +1167,7 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 **Phase 5 (In Progress):**
 - [x] WebAssembly bindings (browser + Node.js support with wasm-pack)
 - [x] Advanced cache strategies (Memcached and Valkey/Redis distributed caching)
-- [ ] VS Code extension
+- [x] VS Code extension (JSON ↔ TOON conversion with syntax highlighting)
 - [ ] Cloud-hosted API
 - [ ] Distributed processing support
 

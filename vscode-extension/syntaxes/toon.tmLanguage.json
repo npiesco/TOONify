@@ -1,0 +1,70 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TOON",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#header"
+    },
+    {
+      "include": "#values"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.toon",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "header": {
+      "patterns": [
+        {
+          "name": "entity.name.type.toon",
+          "match": "^\\w+(?=\\[|\\{)"
+        },
+        {
+          "name": "constant.numeric.toon",
+          "match": "(?<=\\[)\\d+(?=\\])"
+        },
+        {
+          "name": "variable.parameter.toon",
+          "match": "(?<=\\{)[^}]+(?=\\})"
+        },
+        {
+          "name": "keyword.operator.toon",
+          "match": "[:,]"
+        }
+      ]
+    },
+    "values": {
+      "patterns": [
+        {
+          "name": "constant.numeric.toon",
+          "match": "\\b\\d+(\\.\\d+)?\\b"
+        },
+        {
+          "name": "constant.language.toon",
+          "match": "\\b(true|false|null)\\b"
+        },
+        {
+          "name": "string.quoted.double.toon",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.toon",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "scopeName": "source.toon"
+}
+

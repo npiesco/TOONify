@@ -218,6 +218,8 @@ print(json_output)
 - **Tokio** 1.0 - Multi-threaded async runtime (10 worker threads)
 - **Rayon** 1.10 - Data parallelism for batch processing
 - **LRU** 0.12 - Least Recently Used cache for conversion results
+- **Memcache** 0.17 - Memcached client for distributed caching
+- **Redis** 0.24 - Valkey/Redis client for persistent distributed caching
 
 **Bindings:**
 - **UniFFI** 0.29 - Automatic FFI bindings generator
@@ -367,6 +369,7 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 | **wasm.spec.ts** | Playwright browser tests (Chromium, Firefox, Safari) |
 | **npm_test** | npm package validation, local install, TypeScript defs |
 | **pypi_test** | PyPI package validation, sdist build, pip install, twine check |
+| **distributed_cache_test** | Memcached & Valkey integration, TTL, persistence |
 
 ```bash
 # Run all tests
@@ -634,6 +637,72 @@ cat data.toon | toonify compress | toonify decompress
 - Perfect roundtrip preservation
 - Works with stdin/stdout pipes
 
+### [D] Distributed Caching (Memcached & Valkey/Redis)
+
+**Scale horizontally with distributed cache backends:**
+
+> **Note:** Distributed caching is **disabled by default**. You must explicitly opt-in with `--memcached` or `--valkey` flags.
+
+```bash
+# Default - no distributed cache (opt-out by default)
+toonify serve
+
+# Opt-in to Memcached for distributed caching
+toonify serve --memcached 127.0.0.1:11211
+
+# Opt-in to Valkey/Redis for distributed caching with TTL
+toonify serve --valkey valkey://127.0.0.1:6379 --cache-ttl 3600
+
+# Combine LRU and distributed cache
+toonify serve --valkey valkey://127.0.0.1:6379 --cache-size 100
+```
+
+**Features:**
+- **Opt-in by design**: Disabled by default, no external dependencies required
+- **Memcached support**: Fast, multi-threaded in-memory key-value store
+- **Valkey/Redis support**: Advanced caching with TTL, persistence, and clustering
+- **Configurable TTL**: Set cache expiration time (default: 3600 seconds)
+- **Persistent across restarts**: Cache survives server restarts (not ephemeral like LRU)
+- **Horizontal scaling**: Share cache across multiple server instances
+- **Graceful fallback**: Server works fine without distributed cache
+
+**How It Works:**
+- Cache lookup order: Distributed cache → LRU cache → Convert
+- Separate key namespaces for different conversions
+- Thread-safe async operations
+- Automatic URL formatting (e.g., `memcache://` prefix)
+
+**Use Cases:**
+- Multi-instance deployments sharing cache
+- High-availability setups with cache persistence
+- Large-scale production deployments
+- Microservices architecture with centralized caching
+- Development with Docker Compose (shared cache across containers)
+
+**Example Docker Compose:**
+```yaml
+version: '3.8'
+services:
+  memcached:
+    image: memcached:alpine
+    ports:
+      - "11211:11211"
+  
+  valkey:
+    image: valkey/valkey:latest
+    ports:
+      - "6379:6379"
+  
+  toonify:
+    build: .
+    ports:
+      - "5000:5000"
+      - "50051:50051"
+    command: serve --valkey valkey://valkey:6379 --cache-ttl 7200
+    depends_on:
+      - valkey
+```
+
 ### [⚡] LRU Caching
 
 **Boost API performance with intelligent caching:**
@@ -881,6 +950,7 @@ cargo test --test cache_test
 cargo test --test wasm_test
 cargo test --test npm_test
 cargo test --test pypi_test
+cargo test --test distributed_cache_test
 
 # Run Playwright browser tests
 cd tests/wasm && npm test
@@ -1029,10 +1099,10 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 
 **Phase 5 (In Progress):**
 - [x] WebAssembly bindings (browser + Node.js support with wasm-pack)
+- [x] Advanced cache strategies (Memcached and Valkey/Redis distributed caching)
 - [ ] VS Code extension
 - [ ] Cloud-hosted API
 - [ ] Distributed processing support
-- [ ] Advanced cache strategies (Redis, distributed caching)
 
 ## Known Issues
 
