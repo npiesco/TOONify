@@ -27,6 +27,7 @@ glob = "0.3"
 notify = "6.1"
 regex = "1.10"
 rayon = "1.10"
+lru = "0.12"
 
 
 [build-dependencies]
@@ -77,6 +78,10 @@ path = "tests/watch_test.rs"
 [[test]]
 name = "advanced_validation_test"
 path = "tests/advanced_validation_test.rs"
+
+[[test]]
+name = "cache_test"
+path = "tests/cache_test.rs"
 
 [[bench]]
 name = "conversion_bench"

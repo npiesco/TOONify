@@ -25,6 +25,8 @@ use std::sync::mpsc::channel;
 use regex::Regex;
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
+use lru::LruCache;
+use std::num::NonZeroUsize;
 
 pub mod pb {
     tonic::include_proto!("converter");
@@ -135,7 +137,18 @@ enum Commands {
         pattern: Option<String>,
     },
     /// Start the API server (gRPC + REST)
-    Serve,
+    Serve {
+        /// Enable LRU cache with specified size (number of entries)
+        #[arg(long)]
+        cache_size: Option<usize>,
+    },
+}
+
+// Conversion cache for HTTP API
+type ConversionCache = Arc<Mutex<LruCache<String, String>>>;
+
+fn create_cache(size: usize) -> ConversionCache {
+    Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(size).unwrap())))
 }
 
 #[derive(Clone)]
@@ -196,16 +209,48 @@ async fn health_check() -> &'static str {
 }
 
 async fn json_to_toon_handler(
+    axum::extract::State(cache): axum::extract::State<Option<ConversionCache>>,
     Json(payload): Json<ConvertPayload>,
 ) -> impl IntoResponse {
+    // Try cache first if enabled
+    if let Some(ref cache) = cache {
+        let cache_key = format!("j2t:{}", payload.data);
+        
+        // Check cache
+        if let Ok(mut cache_guard) = cache.lock() {
+            if let Some(cached_result) = cache_guard.get(&cache_key) {
+                eprintln!("[CACHE] Hit for json-to-toon");
+                return (
+                    StatusCode::OK,
+                    Json(ConvertResult {
+                        result: Some(cached_result.clone()),
+                        error: None,
+                    }),
+                );
+            }
+        }
+        eprintln!("[CACHE] Miss for json-to-toon");
+    }
+    
+    // Cache miss or no cache - perform conversion
     match converter::json_to_toon(&payload.data) {
-        Ok(result) => (
-            StatusCode::OK,
-            Json(ConvertResult {
-                result: Some(result),
-                error: None,
-            }),
-        ),
+        Ok(result) => {
+            // Store in cache if enabled
+            if let Some(ref cache) = cache {
+                let cache_key = format!("j2t:{}", payload.data);
+                if let Ok(mut cache_guard) = cache.lock() {
+                    cache_guard.put(cache_key, result.clone());
+                }
+            }
+            
+            (
+                StatusCode::OK,
+                Json(ConvertResult {
+                    result: Some(result),
+                    error: None,
+                }),
+            )
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(ConvertResult {
@@ -217,16 +262,48 @@ async fn json_to_toon_handler(
 }
 
 async fn toon_to_json_handler(
+    axum::extract::State(cache): axum::extract::State<Option<ConversionCache>>,
     Json(payload): Json<ConvertPayload>,
 ) -> impl IntoResponse {
+    // Try cache first if enabled
+    if let Some(ref cache) = cache {
+        let cache_key = format!("t2j:{}", payload.data);
+        
+        // Check cache
+        if let Ok(mut cache_guard) = cache.lock() {
+            if let Some(cached_result) = cache_guard.get(&cache_key) {
+                eprintln!("[CACHE] Hit for toon-to-json");
+                return (
+                    StatusCode::OK,
+                    Json(ConvertResult {
+                        result: Some(cached_result.clone()),
+                        error: None,
+                    }),
+                );
+            }
+        }
+        eprintln!("[CACHE] Miss for toon-to-json");
+    }
+    
+    // Cache miss or no cache - perform conversion
     match converter::toon_to_json(&payload.data) {
-        Ok(result) => (
-            StatusCode::OK,
-            Json(ConvertResult {
-                result: Some(result),
-                error: None,
-            }),
-        ),
+        Ok(result) => {
+            // Store in cache if enabled
+            if let Some(ref cache) = cache {
+                let cache_key = format!("t2j:{}", payload.data);
+                if let Ok(mut cache_guard) = cache.lock() {
+                    cache_guard.put(cache_key, result.clone());
+                }
+            }
+            
+            (
+                StatusCode::OK,
+                Json(ConvertResult {
+                    result: Some(result),
+                    error: None,
+                }),
+            )
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(ConvertResult {
@@ -1185,12 +1262,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_watch(input_dir, output_dir, from, to, pattern)?;
             Ok(())
         }
-        Some(Commands::Serve) | None => {
-            // Server mode (default)
+        Some(Commands::Serve { cache_size }) => {
+            // Server mode
             tracing_subscriber::fmt::init();
             
             let grpc_addr: SocketAddr = "0.0.0.0:50051".parse()?;
             let http_addr: SocketAddr = "0.0.0.0:5000".parse()?;
+            
+            // Create cache if requested
+            let cache = if let Some(size) = cache_size {
+                eprintln!("[CACHE] Enabled with size: {} entries", size);
+                Some(create_cache(size))
+            } else {
+                eprintln!("[CACHE] Disabled");
+                None
+            };
             
             let grpc_service = ConverterServiceServer::new(ConverterServiceImpl);
             
@@ -1206,7 +1292,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let app = Router::new()
                 .route("/", get(health_check))
                 .route("/json-to-toon", post(json_to_toon_handler))
-                .route("/toon-to-json", post(toon_to_json_handler));
+                .route("/toon-to-json", post(toon_to_json_handler))
+                .with_state(cache);
+            
+            // Bind with custom socket options for better concurrency
+            let socket = tokio::net::TcpSocket::new_v4()?;
+            socket.set_reuseaddr(true)?;
+            socket.bind(http_addr)?;
+            let listener = socket.listen(1024)?; // Backlog of 1024 connections
+            
+            eprintln!("[HTTP] REST API listening on {}", http_addr);
+            eprintln!("Endpoints:");
+            eprintln!("   GET  /            - Health check");
+            eprintln!("   POST /json-to-toon - Convert JSON to TOON");
+            eprintln!("   POST /toon-to-json - Convert TOON to JSON");
+            
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    tokio::signal::ctrl_c().await.ok();
+                })
+                .await?;
+            Ok(())
+        }
+        None => {
+            // Default to serve mode without cache
+            tracing_subscriber::fmt::init();
+            
+            let grpc_addr: SocketAddr = "0.0.0.0:50051".parse()?;
+            let http_addr: SocketAddr = "0.0.0.0:5000".parse()?;
+            
+            eprintln!("[CACHE] Disabled");
+            let cache: Option<ConversionCache> = None;
+            
+            let grpc_service = ConverterServiceServer::new(ConverterServiceImpl);
+            
+            tokio::spawn(async move {
+                eprintln!("[gRPC] Server listening on {}", grpc_addr);
+                Server::builder()
+                    .add_service(grpc_service)
+                    .serve(grpc_addr)
+                    .await
+                    .expect("gRPC server failed");
+            });
+            
+            let app = Router::new()
+                .route("/", get(health_check))
+                .route("/json-to-toon", post(json_to_toon_handler))
+                .route("/toon-to-json", post(toon_to_json_handler))
+                .with_state(cache);
             
             // Bind with custom socket options for better concurrency
             let socket = tokio::net::TcpSocket::new_v4()?;

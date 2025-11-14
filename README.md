@@ -163,6 +163,12 @@ toonify watch --input-dir ./data --output-dir ./converted --pattern "*.json"
 
 # Start API server (gRPC + REST)
 toonify serve
+
+# Start server with LRU cache (100 entries)
+toonify serve --cache-size 100
+
+# Start server with large cache for high-traffic scenarios
+toonify serve --cache-size 10000
 ```
 
 #### REST API
@@ -211,6 +217,7 @@ print(json_output)
 - **Serde** 1.0 - JSON serialization/deserialization
 - **Tokio** 1.0 - Multi-threaded async runtime (10 worker threads)
 - **Rayon** 1.10 - Data parallelism for batch processing
+- **LRU** 0.12 - Least Recently Used cache for conversion results
 
 **Bindings:**
 - **UniFFI** 0.29 - Automatic FFI bindings generator
@@ -355,6 +362,7 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 | **advanced_validation_test** | Regex patterns, ranges, enums, formats |
 | **batch_test** | Batch conversion, patterns, recursive |
 | **watch_test** | File system monitoring, auto-conversion |
+| **cache_test** | LRU cache, eviction, cache hits/misses |
 
 ```bash
 # Run all tests
@@ -622,6 +630,49 @@ cat data.toon | toonify compress | toonify decompress
 - Perfect roundtrip preservation
 - Works with stdin/stdout pipes
 
+### [⚡] LRU Caching
+
+**Boost API performance with intelligent caching:**
+
+```bash
+# Start server with caching enabled
+toonify serve --cache-size 100
+
+# Large cache for high-traffic production
+toonify serve --cache-size 10000
+```
+
+**How It Works:**
+- **Separate caches** for JSON→TOON and TOON→JSON conversions
+- **LRU eviction** removes least recently used entries when cache is full
+- **Thread-safe** implementation with Mutex-protected cache
+- **Optional** - Server works without caching by default
+
+**Performance Impact:**
+- **Cache hits**: Instant response (no conversion overhead)
+- **Repeated conversions**: Perfect for frequently accessed data
+- **Memory efficient**: Only caches conversion results, not intermediate data
+- **Configurable size**: Adjust cache size based on your workload
+
+**Use Cases:**
+- High-traffic API servers with repeated requests
+- Development servers with hot reload cycles
+- Batch processing with duplicate data
+- Applications with predictable access patterns
+
+**Example Usage:**
+```python
+import requests
+
+# First request - cache miss
+response1 = requests.post("http://localhost:5000/json-to-toon", 
+                         json={"data": '{"users":[{"id":1}]}'})
+
+# Second request - cache hit (instant)
+response2 = requests.post("http://localhost:5000/json-to-toon",
+                         json={"data": '{"users":[{"id":1}]}'})
+```
+
 ### [>] Token Efficiency
 
 **Real-world savings with LLM APIs:**
@@ -685,7 +736,8 @@ toonify/
 │   ├── validation_test.rs           # Schema validation tests
 │   ├── advanced_validation_test.rs  # Advanced validation (regex, ranges, enums)
 │   ├── batch_test.rs                # Batch processing tests
-│   └── watch_test.rs                # Watch mode tests
+│   ├── watch_test.rs                # Watch mode tests
+│   └── cache_test.rs                # LRU cache tests
 ├── benches/
 │   └── conversion_bench.rs  # Criterion benchmarks
 ├── examples/
@@ -714,6 +766,7 @@ cargo test --test validation_test
 cargo test --test advanced_validation_test
 cargo test --test batch_test
 cargo test --test watch_test
+cargo test --test cache_test
 
 # Run with output
 cargo test -- --nocapture
@@ -849,13 +902,14 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 - [x] Watch mode (`toonify watch` - auto-convert on file changes)
 - [x] Parallel batch processing (`--parallel` flag with rayon)
 - [x] Concurrent request handling (multi-threaded server, 1024 connection backlog)
+- [x] LRU caching (`--cache-size` flag for API server)
 
 **Phase 5 (Planned):**
 - [ ] VS Code extension
 - [ ] Cloud-hosted API
 - [ ] WebAssembly bindings
-- [ ] Advanced caching strategies
 - [ ] Distributed processing support
+- [ ] Advanced cache strategies (Redis, distributed caching)
 
 ## Known Issues
 
