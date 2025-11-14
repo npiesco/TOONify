@@ -641,11 +641,16 @@ cat data.toon | toonify compress | toonify decompress
 
 **Scale horizontally with distributed cache backends:**
 
+> **Note:** Distributed caching is **disabled by default**. You must explicitly opt-in with `--memcached` or `--valkey` flags.
+
 ```bash
-# Using Memcached for distributed caching
+# Default - no distributed cache (opt-out by default)
+toonify serve
+
+# Opt-in to Memcached for distributed caching
 toonify serve --memcached 127.0.0.1:11211
 
-# Using Valkey/Redis for distributed caching with TTL
+# Opt-in to Valkey/Redis for distributed caching with TTL
 toonify serve --valkey valkey://127.0.0.1:6379 --cache-ttl 3600
 
 # Combine LRU and distributed cache
@@ -653,12 +658,13 @@ toonify serve --valkey valkey://127.0.0.1:6379 --cache-size 100
 ```
 
 **Features:**
+- **Opt-in by design**: Disabled by default, no external dependencies required
 - **Memcached support**: Fast, multi-threaded in-memory key-value store
 - **Valkey/Redis support**: Advanced caching with TTL, persistence, and clustering
 - **Configurable TTL**: Set cache expiration time (default: 3600 seconds)
 - **Persistent across restarts**: Cache survives server restarts (not ephemeral like LRU)
 - **Horizontal scaling**: Share cache across multiple server instances
-- **Fallback support**: Works with or without distributed cache
+- **Graceful fallback**: Server works fine without distributed cache
 
 **How It Works:**
 - Cache lookup order: Distributed cache → LRU cache → Convert
