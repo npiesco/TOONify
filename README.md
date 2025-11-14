@@ -6,14 +6,13 @@
 
 [![Tech Stack](https://img.shields.io/badge/stack-Rust%20|%20Axum%20|%20gRPC%20|%20UniFFI-orange)](.)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue)](./bindings/python)
-[![Tests](https://img.shields.io/badge/tests-9%20passing-brightgreen)](./tests)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ---
 
 ## What is TOONify?
 
-TOONify is a **production-ready data format converter** that transforms between JSON and TOON (Token-Oriented Object Notation). Built with Rust for maximum performance, it provides both REST/gRPC APIs and native Python bindings.
+TOONify is a **data format converter** that transforms between JSON and TOON (Token-Oriented Object Notation). Built with Rust for maximum performance, it provides both REST/gRPC APIs and native Python bindings.
 
 **Why TOON over JSON:**
 
@@ -108,7 +107,40 @@ pip install -e bindings/python/
 
 **Note:** On Linux, use `.so` instead of `.dylib`
 
+#### Option 3: Docker
+
+```bash
+# Build image
+docker build -t toonify .
+
+# Run server
+docker run -p 5000:5000 -p 50051:50051 toonify
+
+# Run CLI (convert mode)
+docker run toonify convert --help
+
+# Convert with stdin/stdout
+echo '{"users":[{"id":1}]}' | docker run -i toonify convert --from json --to toon
+```
+
 ### Basic Usage
+
+#### CLI Tool
+
+```bash
+# Get help
+toonify --help
+toonify convert --help
+
+# Convert JSON to TOON (stdin/stdout)
+echo '{"users":[{"id":1,"name":"Alice"}]}' | toonify convert --from json --to toon
+
+# Convert files
+toonify convert --from json --to toon --input data.json --output data.toon
+
+# Start API server (gRPC + REST)
+toonify serve
+```
 
 #### REST API
 
@@ -283,7 +315,7 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 - Detailed error messages with line/column information
 - Support for complex nested structures
 - Handles edge cases (colons in values, nested arrays)
-- Validated by 9 comprehensive tests
+- Validated by 25 comprehensive tests
 
 **Test Coverage:**
 
@@ -291,14 +323,17 @@ See [PYTHON.md](PYTHON.md) for detailed Python documentation.
 |------------|-------|---------|
 | **roundtrip_test** | 6 tests | JSON ↔ TOON ↔ JSON preservation |
 | **edge_case_test** | 3 tests | Colons, special chars, nested data |
+| **cli_test** | 5 tests | CLI help, stdin/stdout, file I/O |
+| **docker_test** | 6 tests | Dockerfile, image build, container run |
+| **streaming_test** | 5 tests | HTTP REST API, concurrent requests |
 
 ```bash
 # Run all tests
 cargo test
 
 # Output:
-# running 9 tests
-# test result: ok. 9 passed; 0 failed
+# running 25 tests
+# test result: ok. 25 passed; 0 failed
 ```
 
 ### [>] Token Efficiency
@@ -340,7 +375,7 @@ See [UNIFFI_SETUP.md](UNIFFI_SETUP.md) for UniFFI architecture details.
 ```
 toonify/
 ├── src/
-│   ├── main.rs              # Axum + Tonic server
+│   ├── main.rs              # CLI + Axum + Tonic server
 │   ├── lib.rs               # UniFFI exports
 │   ├── converter.rs         # Core conversion logic
 │   ├── bin/
@@ -356,11 +391,18 @@ toonify/
 │       └── libtoonify.dylib # Native library
 ├── tests/
 │   ├── roundtrip_test.rs    # Conversion tests (6)
-│   └── edge_case_test.rs    # Edge cases (3)
+│   ├── edge_case_test.rs    # Edge cases (3)
+│   ├── cli_test.rs          # CLI integration tests (5)
+│   ├── docker_test.rs       # Docker tests (6)
+│   └── streaming_test.rs    # HTTP API tests (5)
+├── benches/
+│   └── conversion_bench.rs  # Criterion benchmarks
 ├── examples/
 │   └── python_example.py    # Python usage examples
 ├── proto/
 │   └── converter.proto      # gRPC service definition
+├── Dockerfile               # Alpine-based multi-stage build
+├── .dockerignore            # Docker build exclusions
 └── docs/
     ├── PYTHON.md            # Python integration guide
     └── UNIFFI_SETUP.md      # UniFFI architecture
@@ -374,9 +416,14 @@ cargo test
 
 # Run specific test suite
 cargo test --test roundtrip_test
+cargo test --test cli_test
+cargo test --test streaming_test
 
 # Run with output
 cargo test -- --nocapture
+
+# Run benchmarks
+cargo bench
 
 # Run Python examples
 python3 examples/python_example.py
@@ -494,15 +541,15 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 - [ ] PyPI distribution
 - [ ] npm package (WASM)
 
-**Phase 4 (Planned):**
-- [ ] CLI tool (`toonify convert file.json`)
-- [ ] Docker image
-- [ ] Benchmarks
-- [ ] VS Code extension
+**Phase 4 (Completed):**
+- [x] CLI tool (`toonify convert`, `toonify serve`)
+- [x] Docker image (Alpine-based, multi-stage build)
+- [x] Benchmarks (Criterion-based performance tests)
+- [x] Streaming API (HTTP REST with event-based tests)
 
-**Phase 5 (Future):**
+**Phase 5 (Planned):**
+- [ ] VS Code extension
 - [ ] TOON Schema validation
-- [ ] Streaming conversions
 - [ ] Compression support
 - [ ] Cloud-hosted API
 
@@ -610,7 +657,6 @@ Built with:
 - [Nom](https://github.com/rust-bakery/nom) - Parser combinators
 - [UniFFI](https://mozilla.github.io/uniffi-rs/) - FFI bindings by Mozilla
 
-Inspired by the need for efficient data formats in AI/LLM applications.
 
 ---
 
