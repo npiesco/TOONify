@@ -264,3 +264,173 @@ fn test_batch_reports_stats() {
     println!("✓ Test completed\n");
 }
 
+#[test]
+fn test_batch_parallel_processing() {
+    println!("=== Batch: Parallel processing with --parallel flag ===");
+    
+    let test_dir = "/tmp/batch_parallel";
+    let _ = fs::remove_dir_all(test_dir);
+    fs::create_dir_all(test_dir).unwrap();
+    
+    // Create 20 JSON files to make parallelism worthwhile
+    println!("Creating 20 JSON files...");
+    for i in 1..=20 {
+        fs::write(
+            format!("{}/file{:02}.json", test_dir, i),
+            format!(r#"{{"id":{},"data":"item{:02}","value":{}}}"#, i, i, i * 10)
+        ).unwrap();
+    }
+    
+    println!("Running parallel batch conversion...");
+    
+    // Run batch with --parallel flag
+    let output = Command::new(get_binary_path())
+        .args(&[
+            "batch",
+            "--input-dir", test_dir,
+            "--output-dir", &format!("{}/output", test_dir),
+            "--parallel"
+        ])
+        .output()
+        .expect("Failed to execute parallel batch command");
+    
+    println!("Exit status: {}", output.status);
+    println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+    println!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    
+    assert!(output.status.success(), "Parallel batch conversion should succeed");
+    
+    // Verify all 20 files were converted
+    let output_dir = format!("{}/output", test_dir);
+    for i in 1..=20 {
+        let toon_file = format!("{}/file{:02}.toon", output_dir, i);
+        assert!(Path::new(&toon_file).exists(), "file{:02}.toon should exist", i);
+        
+        // Verify content is valid
+        let content = fs::read_to_string(&toon_file).unwrap();
+        assert!(content.contains("id,data,value") || content.contains(&format!("{}", i)), 
+                "TOON file should contain converted data");
+    }
+    
+    println!("✓ All 20 files converted successfully in parallel");
+    
+    // Cleanup
+    let _ = fs::remove_dir_all(test_dir);
+    
+    println!("✓ Test completed\n");
+}
+
+#[test]
+fn test_batch_parallel_with_errors() {
+    println!("=== Batch: Parallel processing handles errors gracefully ===");
+    
+    let test_dir = "/tmp/batch_parallel_errors";
+    let _ = fs::remove_dir_all(test_dir);
+    fs::create_dir_all(test_dir).unwrap();
+    
+    // Create mix of valid and invalid files
+    fs::write(format!("{}/valid1.json", test_dir), r#"{"id":1}"#).unwrap();
+    fs::write(format!("{}/valid2.json", test_dir), r#"{"id":2}"#).unwrap();
+    fs::write(format!("{}/invalid1.json", test_dir), "not json at all").unwrap();
+    fs::write(format!("{}/valid3.json", test_dir), r#"{"id":3}"#).unwrap();
+    fs::write(format!("{}/invalid2.json", test_dir), "{broken json:").unwrap();
+    fs::write(format!("{}/valid4.json", test_dir), r#"{"id":4}"#).unwrap();
+    
+    println!("Created 6 files (4 valid, 2 invalid)");
+    
+    // Run batch with --parallel flag
+    let output = Command::new(get_binary_path())
+        .args(&[
+            "batch",
+            "--input-dir", test_dir,
+            "--output-dir", &format!("{}/output", test_dir),
+            "--parallel"
+        ])
+        .output()
+        .expect("Failed to execute parallel batch command");
+    
+    println!("Exit status: {}", output.status);
+    println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+    println!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    
+    // Should report errors but continue processing
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let combined_output = format!("{}{}", stdout, stderr);
+    
+    // Verify that errors are reported for invalid files
+    assert!(combined_output.contains("invalid1") || combined_output.contains("error") || combined_output.contains("Error") || combined_output.contains("Failed"),
+            "Should report errors for invalid files");
+    
+    // Verify valid files were converted
+    let output_dir = format!("{}/output", test_dir);
+    assert!(Path::new(&format!("{}/valid1.toon", output_dir)).exists(), "valid1.toon should exist");
+    assert!(Path::new(&format!("{}/valid2.toon", output_dir)).exists(), "valid2.toon should exist");
+    assert!(Path::new(&format!("{}/valid3.toon", output_dir)).exists(), "valid3.toon should exist");
+    assert!(Path::new(&format!("{}/valid4.toon", output_dir)).exists(), "valid4.toon should exist");
+    
+    // Invalid files should not produce output
+    assert!(!Path::new(&format!("{}/invalid1.toon", output_dir)).exists(), "invalid1.toon should NOT exist");
+    assert!(!Path::new(&format!("{}/invalid2.toon", output_dir)).exists(), "invalid2.toon should NOT exist");
+    
+    println!("✓ Valid files converted, invalid files skipped");
+    
+    // Cleanup
+    let _ = fs::remove_dir_all(test_dir);
+    
+    println!("✓ Test completed\n");
+}
+
+#[test]
+fn test_batch_parallel_preserves_directory_structure() {
+    println!("=== Batch: Parallel processing preserves directory structure ===");
+    
+    let test_dir = "/tmp/batch_parallel_recursive";
+    let _ = fs::remove_dir_all(test_dir);
+    fs::create_dir_all(format!("{}/dir1/subdir1", test_dir)).unwrap();
+    fs::create_dir_all(format!("{}/dir1/subdir2", test_dir)).unwrap();
+    fs::create_dir_all(format!("{}/dir2", test_dir)).unwrap();
+    
+    // Create files in nested structure
+    fs::write(format!("{}/root.json", test_dir), r#"{"level":"root"}"#).unwrap();
+    fs::write(format!("{}/dir1/level1.json", test_dir), r#"{"level":"dir1"}"#).unwrap();
+    fs::write(format!("{}/dir1/subdir1/level2a.json", test_dir), r#"{"level":"subdir1"}"#).unwrap();
+    fs::write(format!("{}/dir1/subdir2/level2b.json", test_dir), r#"{"level":"subdir2"}"#).unwrap();
+    fs::write(format!("{}/dir2/level1b.json", test_dir), r#"{"level":"dir2"}"#).unwrap();
+    
+    println!("Created 5 files in nested directory structure");
+    
+    // Run parallel batch with recursive flag
+    let output = Command::new(get_binary_path())
+        .args(&[
+            "batch",
+            "--input-dir", test_dir,
+            "--output-dir", &format!("{}/output", test_dir),
+            "--parallel",
+            "--recursive"
+        ])
+        .output()
+        .expect("Failed to execute parallel recursive batch");
+    
+    println!("Exit status: {}", output.status);
+    println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+    println!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    
+    assert!(output.status.success(), "Parallel recursive batch should succeed");
+    
+    // Verify all files converted with structure preserved
+    let output_dir = format!("{}/output", test_dir);
+    assert!(Path::new(&format!("{}/root.toon", output_dir)).exists(), "root.toon should exist");
+    assert!(Path::new(&format!("{}/dir1/level1.toon", output_dir)).exists(), "dir1/level1.toon should exist");
+    assert!(Path::new(&format!("{}/dir1/subdir1/level2a.toon", output_dir)).exists(), "dir1/subdir1/level2a.toon should exist");
+    assert!(Path::new(&format!("{}/dir1/subdir2/level2b.toon", output_dir)).exists(), "dir1/subdir2/level2b.toon should exist");
+    assert!(Path::new(&format!("{}/dir2/level1b.toon", output_dir)).exists(), "dir2/level1b.toon should exist");
+    
+    println!("✓ Directory structure preserved in parallel processing");
+    
+    // Cleanup
+    let _ = fs::remove_dir_all(test_dir);
+    
+    println!("✓ Test completed\n");
+}
+

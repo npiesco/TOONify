@@ -23,6 +23,8 @@ use glob::glob;
 use notify::{Watcher, RecursiveMode, Event, event::{CreateKind, ModifyKind}, EventKind};
 use std::sync::mpsc::channel;
 use regex::Regex;
+use rayon::prelude::*;
+use std::sync::{Arc, Mutex};
 
 pub mod pb {
     tonic::include_proto!("converter");
@@ -105,6 +107,10 @@ enum Commands {
         /// Process subdirectories recursively
         #[arg(short, long)]
         recursive: bool,
+        
+        /// Enable parallel processing for faster batch conversions
+        #[arg(long)]
+        parallel: bool,
     },
     /// Watch directory and auto-convert files on change
     Watch {
@@ -772,11 +778,13 @@ fn run_batch(
     to: Option<String>,
     pattern: Option<String>,
     recursive: bool,
+    parallel: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("[BATCH] Starting batch conversion...");
     eprintln!("[BATCH] Input directory: {:?}", input_dir);
     eprintln!("[BATCH] Output directory: {:?}", output_dir);
     eprintln!("[BATCH] Recursive: {}", recursive);
+    eprintln!("[BATCH] Parallel: {}", parallel);
     
     if !input_dir.exists() {
         return Err(format!("Input directory does not exist: {:?}", input_dir).into());
@@ -825,124 +833,173 @@ fn run_batch(
         return Ok(());
     }
     
-    let mut successful = 0;
-    let mut failed = 0;
+    // Use Arc<Mutex<>> for thread-safe counters in parallel mode
+    let successful = Arc::new(Mutex::new(0));
+    let failed = Arc::new(Mutex::new(0));
     
-    for (idx, file_path) in files_to_process.iter().enumerate() {
-        eprintln!("[BATCH] Processing file {}/{}: {:?}", idx + 1, files_to_process.len(), file_path);
-        
-        // Read file
-        let content = match fs::read_to_string(file_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("[BATCH] Failed to read file: {}", e);
-                failed += 1;
-                continue;
-            }
-        };
-        
-        // Detect format if not specified
-        let source_format = if let Some(ref f) = from {
-            f.as_str()
-        } else {
-            match detect_format(&content) {
-                Ok(f) => f,
-                Err(e) => {
-                    eprintln!("[BATCH] Failed to detect format: {}", e);
-                    failed += 1;
-                    continue;
-                }
-            }
-        };
-        
-        eprintln!("[BATCH] Source format: {}", source_format);
-        
-        // Determine target format
-        let target_format = if let Some(ref t) = to {
-            t.as_str()
-        } else {
-            // Auto-detect target: if source is JSON, target is TOON, and vice versa
-            if source_format == "json" {
-                "toon"
-            } else {
-                "json"
-            }
-        };
-        
-        eprintln!("[BATCH] Target format: {}", target_format);
-        
-        // Convert
-        let converted = match (source_format, target_format) {
-            ("json", "toon") => converter::json_to_toon(&content),
-            ("toon", "json") => converter::toon_to_json(&content),
-            ("json", "json") | ("toon", "toon") => {
-                eprintln!("[BATCH] Source and target formats are the same, copying file");
-                Ok(content)
-            }
-            _ => {
-                eprintln!("[BATCH] Unsupported format combination: {} -> {}", source_format, target_format);
-                failed += 1;
-                continue;
-            }
-        };
-        
-        let converted_content = match converted {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("[BATCH] Conversion failed: {}", e);
-                failed += 1;
-                continue;
-            }
-        };
-        
-        // Determine output path
-        let relative_path = file_path.strip_prefix(&input_dir)
-            .unwrap_or(file_path);
-        
-        let mut output_path = output_dir.join(relative_path);
-        
-        // Change extension based on target format
-        let new_extension = match target_format {
-            "json" => "json",
-            "toon" => "toon",
-            _ => "txt",
-        };
-        output_path.set_extension(new_extension);
-        
-        eprintln!("[BATCH] Output path: {:?}", output_path);
-        
-        // Create parent directories if needed
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        
-        // Write output
-        match fs::write(&output_path, converted_content) {
-            Ok(_) => {
-                eprintln!("[BATCH] ✓ Successfully converted: {:?}", file_path);
-                successful += 1;
-            }
-            Err(e) => {
-                eprintln!("[BATCH] Failed to write output: {}", e);
-                failed += 1;
-            }
+    // Process files either in parallel or sequentially
+    if parallel {
+        // Parallel processing with rayon
+        files_to_process.par_iter().enumerate().for_each(|(idx, file_path)| {
+            eprintln!("[BATCH] Processing file {}/{}: {:?}", idx + 1, files_to_process.len(), file_path);
+            
+            process_file(
+                file_path,
+                &input_dir,
+                &output_dir,
+                &from,
+                &to,
+                Arc::clone(&successful),
+                Arc::clone(&failed),
+            );
+        });
+    } else {
+        // Sequential processing
+        for (idx, file_path) in files_to_process.iter().enumerate() {
+            eprintln!("[BATCH] Processing file {}/{}: {:?}", idx + 1, files_to_process.len(), file_path);
+            
+            process_file(
+                file_path,
+                &input_dir,
+                &output_dir,
+                &from,
+                &to,
+                Arc::clone(&successful),
+                Arc::clone(&failed),
+            );
         }
     }
+    
+    // Extract final counts from Arc<Mutex<>>
+    let successful_count = *successful.lock().unwrap();
+    let failed_count = *failed.lock().unwrap();
     
     eprintln!("\n[BATCH] ==================== SUMMARY ====================");
     eprintln!("[BATCH] Total files processed: {}", files_to_process.len());
-    eprintln!("[BATCH] Successful: {}", successful);
-    eprintln!("[BATCH] Failed: {}", failed);
+    eprintln!("[BATCH] Successful: {}", successful_count);
+    eprintln!("[BATCH] Failed: {}", failed_count);
     eprintln!("[BATCH] ===================================================\n");
     
     println!("Batch conversion completed successfully!");
-    println!("Processed {} files ({} successful, {} failed)", files_to_process.len(), successful, failed);
+    println!("Processed {} files ({} successful, {} failed)", files_to_process.len(), successful_count, failed_count);
     
-    if failed > 0 {
-        return Err(format!("{} files failed to convert", failed).into());
+    if failed_count > 0 {
+        return Err(format!("{} files failed to convert", failed_count).into());
     }
     
     Ok(())
+}
+
+// Helper function to process a single file
+fn process_file(
+    file_path: &PathBuf,
+    input_dir: &PathBuf,
+    output_dir: &PathBuf,
+    from: &Option<String>,
+    to: &Option<String>,
+    successful: Arc<Mutex<i32>>,
+    failed: Arc<Mutex<i32>>,
+) {
+    // Read file
+    let content = match fs::read_to_string(file_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[BATCH] Failed to read file: {}", e);
+            *failed.lock().unwrap() += 1;
+            return;
+        }
+    };
+    
+    // Detect format if not specified
+    let source_format = if let Some(ref f) = from {
+        f.as_str()
+    } else {
+        match detect_format(&content) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("[BATCH] Failed to detect format: {}", e);
+                *failed.lock().unwrap() += 1;
+                return;
+            }
+        }
+    };
+    
+    eprintln!("[BATCH] Source format: {}", source_format);
+    
+    // Determine target format
+    let target_format = if let Some(ref t) = to {
+        t.as_str()
+    } else {
+        // Auto-detect target: if source is JSON, target is TOON, and vice versa
+        if source_format == "json" {
+            "toon"
+        } else {
+            "json"
+        }
+    };
+    
+    eprintln!("[BATCH] Target format: {}", target_format);
+    
+    // Convert
+    let converted = match (source_format, target_format) {
+        ("json", "toon") => converter::json_to_toon(&content),
+        ("toon", "json") => converter::toon_to_json(&content),
+        ("json", "json") | ("toon", "toon") => {
+            eprintln!("[BATCH] Source and target formats are the same, copying file");
+            Ok(content)
+        }
+        _ => {
+            eprintln!("[BATCH] Unsupported format combination: {} -> {}", source_format, target_format);
+            *failed.lock().unwrap() += 1;
+            return;
+        }
+    };
+    
+    let converted_content = match converted {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[BATCH] Conversion failed: {}", e);
+            *failed.lock().unwrap() += 1;
+            return;
+        }
+    };
+    
+    // Determine output path
+    let relative_path = file_path.strip_prefix(&input_dir)
+        .unwrap_or(file_path);
+    
+    let mut output_path = output_dir.join(relative_path);
+    
+    // Change extension based on target format
+    let new_extension = match target_format {
+        "json" => "json",
+        "toon" => "toon",
+        _ => "txt",
+    };
+    output_path.set_extension(new_extension);
+    
+    eprintln!("[BATCH] Output path: {:?}", output_path);
+    
+    // Create parent directories if needed
+    if let Some(parent) = output_path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            eprintln!("[BATCH] Failed to create parent directory: {}", e);
+            *failed.lock().unwrap() += 1;
+            return;
+        }
+    }
+    
+    // Write output
+    match fs::write(&output_path, converted_content) {
+        Ok(_) => {
+            eprintln!("[BATCH] ✓ Successfully converted: {:?}", file_path);
+            *successful.lock().unwrap() += 1;
+        }
+        Err(e) => {
+            eprintln!("[BATCH] Failed to write output: {}", e);
+            *failed.lock().unwrap() += 1;
+        }
+    }
 }
 
 fn run_watch(
@@ -1093,7 +1150,7 @@ fn run_watch(
     Ok(())
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     
@@ -1118,9 +1175,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_validate(schema, input)?;
             Ok(())
         }
-        Some(Commands::Batch { input_dir, output_dir, from, to, pattern, recursive }) => {
+        Some(Commands::Batch { input_dir, output_dir, from, to, pattern, recursive, parallel }) => {
             // CLI mode - batch convert files
-            run_batch(input_dir, output_dir, from, to, pattern, recursive)?;
+            run_batch(input_dir, output_dir, from, to, pattern, recursive, parallel)?;
             Ok(())
         }
         Some(Commands::Watch { input_dir, output_dir, from, to, pattern }) => {
@@ -1151,7 +1208,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route("/json-to-toon", post(json_to_toon_handler))
                 .route("/toon-to-json", post(toon_to_json_handler));
             
-            let listener = tokio::net::TcpListener::bind(&http_addr).await?;
+            // Bind with custom socket options for better concurrency
+            let socket = tokio::net::TcpSocket::new_v4()?;
+            socket.set_reuseaddr(true)?;
+            socket.bind(http_addr)?;
+            let listener = socket.listen(1024)?; // Backlog of 1024 connections
             
             eprintln!("[HTTP] REST API listening on {}", http_addr);
             eprintln!("Endpoints:");
@@ -1159,7 +1220,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("   POST /json-to-toon - Convert JSON to TOON");
             eprintln!("   POST /toon-to-json - Convert TOON to JSON");
             
-            axum::serve(listener, app).await?;
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    tokio::signal::ctrl_c().await.ok();
+                })
+                .await?;
             Ok(())
         }
     }
