@@ -28,6 +28,11 @@ use std::sync::{Arc, Mutex};
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
+#[cfg(feature = "distributed-cache")]
+use memcache::Client as MemcacheClient;
+#[cfg(feature = "distributed-cache")]
+use redis::Client as RedisClient;
+
 pub mod pb {
     tonic::include_proto!("converter");
 }
@@ -141,6 +146,18 @@ enum Commands {
         /// Enable LRU cache with specified size (number of entries)
         #[arg(long)]
         cache_size: Option<usize>,
+        
+        /// Enable Memcached distributed cache (e.g., "127.0.0.1:11211")
+        #[arg(long)]
+        memcached: Option<String>,
+        
+        /// Enable Valkey/Redis distributed cache (e.g., "valkey://127.0.0.1:6379")
+        #[arg(long)]
+        valkey: Option<String>,
+        
+        /// TTL for distributed cache entries in seconds (default: 3600)
+        #[arg(long, default_value = "3600")]
+        cache_ttl: u64,
     },
 }
 
@@ -149,6 +166,64 @@ type ConversionCache = Arc<Mutex<LruCache<String, String>>>;
 
 fn create_cache(size: usize) -> ConversionCache {
     Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(size).unwrap())))
+}
+
+// Distributed cache backend enum
+#[cfg(feature = "distributed-cache")]
+enum DistributedCache {
+    Memcached(MemcacheClient),
+    Valkey(RedisClient, u64), // Client + TTL
+}
+
+#[cfg(feature = "distributed-cache")]
+impl DistributedCache {
+    fn get(&self, key: &str) -> Option<String> {
+        match self {
+            DistributedCache::Memcached(client) => {
+                client.get::<String>(key).ok().flatten()
+            }
+            DistributedCache::Valkey(client, _) => {
+                if let Ok(mut conn) = client.get_connection() {
+                    redis::cmd("GET").arg(key).query::<Option<String>>(&mut conn).ok().flatten()
+                } else {
+                    None
+                }
+            }
+        }
+    }
+    
+    fn set(&self, key: &str, value: &str) {
+        match self {
+            DistributedCache::Memcached(client) => {
+                let _ = client.set(key, value, 0); // 0 means no expiration for now
+            }
+            DistributedCache::Valkey(client, ttl) => {
+                if let Ok(mut conn) = client.get_connection() {
+                    let _ = redis::cmd("SETEX")
+                        .arg(key)
+                        .arg(*ttl)
+                        .arg(value)
+                        .query::<()>(&mut conn);
+                }
+            }
+        }
+    }
+}
+
+type DistributedCacheType = Arc<DistributedCache>;
+
+// Cache state that can hold both LRU and distributed cache
+#[derive(Clone)]
+struct CacheState {
+    lru: Option<ConversionCache>,
+    #[cfg(feature = "distributed-cache")]
+    distributed: Option<DistributedCacheType>,
+}
+
+#[cfg(not(feature = "distributed-cache"))]
+#[derive(Clone)]
+struct CacheState {
+    lru: Option<ConversionCache>,
 }
 
 #[derive(Clone)]
@@ -209,17 +284,32 @@ async fn health_check() -> &'static str {
 }
 
 async fn json_to_toon_handler(
-    axum::extract::State(cache): axum::extract::State<Option<ConversionCache>>,
+    axum::extract::State(cache_state): axum::extract::State<CacheState>,
     Json(payload): Json<ConvertPayload>,
 ) -> impl IntoResponse {
-    // Try cache first if enabled
-    if let Some(ref cache) = cache {
-        let cache_key = format!("j2t:{}", payload.data);
-        
-        // Check cache
-        if let Ok(mut cache_guard) = cache.lock() {
+    let cache_key = format!("toonify:json_to_toon:{}", payload.data);
+    
+    // Try distributed cache first
+    #[cfg(feature = "distributed-cache")]
+    if let Some(ref dist_cache) = cache_state.distributed {
+        if let Some(cached_result) = dist_cache.get(&cache_key) {
+            eprintln!("[CACHE] Distributed hit for json-to-toon");
+            return (
+                StatusCode::OK,
+                Json(ConvertResult {
+                    result: Some(cached_result),
+                    error: None,
+                }),
+            );
+        }
+        eprintln!("[CACHE] Distributed miss for json-to-toon");
+    }
+    
+    // Try LRU cache if enabled
+    if let Some(ref lru_cache) = cache_state.lru {
+        if let Ok(mut cache_guard) = lru_cache.lock() {
             if let Some(cached_result) = cache_guard.get(&cache_key) {
-                eprintln!("[CACHE] Hit for json-to-toon");
+                eprintln!("[CACHE] LRU hit for json-to-toon");
                 return (
                     StatusCode::OK,
                     Json(ConvertResult {
@@ -229,16 +319,21 @@ async fn json_to_toon_handler(
                 );
             }
         }
-        eprintln!("[CACHE] Miss for json-to-toon");
+        eprintln!("[CACHE] LRU miss for json-to-toon");
     }
     
     // Cache miss or no cache - perform conversion
     match converter::json_to_toon(&payload.data) {
         Ok(result) => {
-            // Store in cache if enabled
-            if let Some(ref cache) = cache {
-                let cache_key = format!("j2t:{}", payload.data);
-                if let Ok(mut cache_guard) = cache.lock() {
+            // Store in distributed cache if enabled
+            #[cfg(feature = "distributed-cache")]
+            if let Some(ref dist_cache) = cache_state.distributed {
+                dist_cache.set(&cache_key, &result);
+            }
+            
+            // Store in LRU cache if enabled
+            if let Some(ref lru_cache) = cache_state.lru {
+                if let Ok(mut cache_guard) = lru_cache.lock() {
                     cache_guard.put(cache_key, result.clone());
                 }
             }
@@ -262,17 +357,32 @@ async fn json_to_toon_handler(
 }
 
 async fn toon_to_json_handler(
-    axum::extract::State(cache): axum::extract::State<Option<ConversionCache>>,
+    axum::extract::State(cache_state): axum::extract::State<CacheState>,
     Json(payload): Json<ConvertPayload>,
 ) -> impl IntoResponse {
-    // Try cache first if enabled
-    if let Some(ref cache) = cache {
-        let cache_key = format!("t2j:{}", payload.data);
-        
-        // Check cache
-        if let Ok(mut cache_guard) = cache.lock() {
+    let cache_key = format!("toonify:toon_to_json:{}", payload.data);
+    
+    // Try distributed cache first
+    #[cfg(feature = "distributed-cache")]
+    if let Some(ref dist_cache) = cache_state.distributed {
+        if let Some(cached_result) = dist_cache.get(&cache_key) {
+            eprintln!("[CACHE] Distributed hit for toon-to-json");
+            return (
+                StatusCode::OK,
+                Json(ConvertResult {
+                    result: Some(cached_result),
+                    error: None,
+                }),
+            );
+        }
+        eprintln!("[CACHE] Distributed miss for toon-to-json");
+    }
+    
+    // Try LRU cache if enabled
+    if let Some(ref lru_cache) = cache_state.lru {
+        if let Ok(mut cache_guard) = lru_cache.lock() {
             if let Some(cached_result) = cache_guard.get(&cache_key) {
-                eprintln!("[CACHE] Hit for toon-to-json");
+                eprintln!("[CACHE] LRU hit for toon-to-json");
                 return (
                     StatusCode::OK,
                     Json(ConvertResult {
@@ -282,16 +392,21 @@ async fn toon_to_json_handler(
                 );
             }
         }
-        eprintln!("[CACHE] Miss for toon-to-json");
+        eprintln!("[CACHE] LRU miss for toon-to-json");
     }
     
     // Cache miss or no cache - perform conversion
     match converter::toon_to_json(&payload.data) {
         Ok(result) => {
-            // Store in cache if enabled
-            if let Some(ref cache) = cache {
-                let cache_key = format!("t2j:{}", payload.data);
-                if let Ok(mut cache_guard) = cache.lock() {
+            // Store in distributed cache if enabled
+            #[cfg(feature = "distributed-cache")]
+            if let Some(ref dist_cache) = cache_state.distributed {
+                dist_cache.set(&cache_key, &result);
+            }
+            
+            // Store in LRU cache if enabled
+            if let Some(ref lru_cache) = cache_state.lru {
+                if let Ok(mut cache_guard) = lru_cache.lock() {
                     cache_guard.put(cache_key, result.clone());
                 }
             }
@@ -1262,19 +1377,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_watch(input_dir, output_dir, from, to, pattern)?;
             Ok(())
         }
-        Some(Commands::Serve { cache_size }) => {
+        Some(Commands::Serve { cache_size, memcached, valkey, cache_ttl }) => {
             // Server mode
     tracing_subscriber::fmt::init();
 
             let grpc_addr: SocketAddr = "0.0.0.0:50051".parse()?;
             let http_addr: SocketAddr = "0.0.0.0:5000".parse()?;
             
-            // Create cache if requested
-            let cache = if let Some(size) = cache_size {
-                eprintln!("[CACHE] Enabled with size: {} entries", size);
-                Some(create_cache(size))
+            // Handle distributed cache options
+            #[cfg(feature = "distributed-cache")]
+            let distributed_cache: Option<DistributedCacheType> = if let Some(memcached_url) = memcached {
+                eprintln!("[CACHE] Using Memcached at: {}", memcached_url);
+                // Memcache client expects "memcache://host:port" or "memcache+tcp://host:port" format
+                let url = if memcached_url.starts_with("memcache://") || memcached_url.starts_with("memcache+tcp://") {
+                    memcached_url
+                } else {
+                    format!("memcache://{}", memcached_url)
+                };
+                match MemcacheClient::connect(url.as_str()) {
+                    Ok(client) => Some(Arc::new(DistributedCache::Memcached(client))),
+                    Err(e) => {
+                        eprintln!("[ERROR] Failed to connect to Memcached: {}", e);
+                        None
+                    }
+                }
+            } else if let Some(valkey_url) = valkey {
+                eprintln!("[CACHE] Using Valkey at: {} (TTL: {}s)", valkey_url, cache_ttl);
+                match RedisClient::open(valkey_url.as_str()) {
+                    Ok(client) => Some(Arc::new(DistributedCache::Valkey(client, cache_ttl))),
+                    Err(e) => {
+                        eprintln!("[ERROR] Failed to connect to Valkey: {}", e);
+                        None
+                    }
+                }
             } else {
-                eprintln!("[CACHE] Disabled");
+                None
+            };
+            
+            #[cfg(not(feature = "distributed-cache"))]
+            let distributed_cache: Option<()> = None;
+            
+            // Create LRU cache if requested (fallback or supplement to distributed cache)
+            let cache = if let Some(size) = cache_size {
+                eprintln!("[CACHE] LRU enabled with size: {} entries", size);
+                Some(create_cache(size))
+            } else if distributed_cache.is_none() {
+                eprintln!("[CACHE] Disabled (no cache configured)");
+                None
+            } else {
                 None
             };
 
@@ -1289,11 +1439,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("gRPC server failed");
     });
 
+    #[cfg(feature = "distributed-cache")]
+    let cache_state = CacheState {
+        lru: cache,
+        distributed: distributed_cache,
+    };
+    
+    #[cfg(not(feature = "distributed-cache"))]
+    let cache_state = CacheState {
+        lru: cache,
+    };
+    
     let app = Router::new()
         .route("/", get(health_check))
         .route("/json-to-toon", post(json_to_toon_handler))
                 .route("/toon-to-json", post(toon_to_json_handler))
-                .with_state(cache);
+                .with_state(cache_state);
             
             // Bind with custom socket options for better concurrency
             let socket = tokio::net::TcpSocket::new_v4()?;
@@ -1322,7 +1483,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let http_addr: SocketAddr = "0.0.0.0:5000".parse()?;
             
             eprintln!("[CACHE] Disabled");
-            let cache: Option<ConversionCache> = None;
+            
+            #[cfg(feature = "distributed-cache")]
+            let cache_state = CacheState {
+                lru: None,
+                distributed: None,
+            };
+            
+            #[cfg(not(feature = "distributed-cache"))]
+            let cache_state = CacheState {
+                lru: None,
+            };
             
             let grpc_service = ConverterServiceServer::new(ConverterServiceImpl);
             
@@ -1339,7 +1510,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route("/", get(health_check))
                 .route("/json-to-toon", post(json_to_toon_handler))
                 .route("/toon-to-json", post(toon_to_json_handler))
-                .with_state(cache);
+                .with_state(cache_state);
             
             // Bind with custom socket options for better concurrency
             let socket = tokio::net::TcpSocket::new_v4()?;

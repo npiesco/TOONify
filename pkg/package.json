@@ -2,34 +2,10 @@
   "name": "toonify",
   "type": "module",
   "version": "0.1.0",
-  "description": "High-performance JSON ↔ TOON converter compiled to WebAssembly. Reduce LLM token usage by 30-60% with TOON (Token-Oriented Object Notation).",
-  "author": "TOONify Contributors",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/npiesco/TOONify.git"
-  },
-  "homepage": "https://github.com/npiesco/TOONify#readme",
-  "bugs": {
-    "url": "https://github.com/npiesco/TOONify/issues"
-  },
-  "keywords": [
-    "wasm",
-    "webassembly",
-    "toon",
-    "json",
-    "converter",
-    "llm",
-    "ai",
-    "token-optimization",
-    "data-format",
-    "rust"
-  ],
   "files": [
     "toonify_bg.wasm",
     "toonify.js",
-    "toonify.d.ts",
-    "README.md"
+    "toonify.d.ts"
   ],
   "main": "toonify.js",
   "types": "toonify.d.ts",

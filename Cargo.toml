@@ -31,9 +31,11 @@ regex = { version = "1.10", optional = true }
 rayon = { version = "1.10", optional = true }
 lru = { version = "0.12", optional = true }
 uniffi = { version = "0.29", features = ["cli"], optional = true }
+memcache = { version = "0.17", optional = true }
+redis = { version = "0.24", optional = true }
 
 [features]
-default = ["server", "cli", "compression", "validation", "batch", "watch", "cache", "uniffi"]
+default = ["server", "cli", "compression", "validation", "batch", "watch", "cache", "distributed-cache", "uniffi"]
 server = ["axum", "tokio", "tower", "tower-http", "tonic", "prost", "tracing", "tracing-subscriber", "lru"]
 cli = ["clap", "tokio"]
 compression = ["flate2"]
@@ -41,6 +43,7 @@ validation = ["regex"]
 batch = ["glob", "rayon"]
 watch = ["notify", "tokio"]
 cache = ["lru"]
+distributed-cache = ["memcache", "redis"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
@@ -111,6 +114,10 @@ path = "tests/npm_test.rs"
 [[test]]
 name = "pypi_test"
 path = "tests/pypi_test.rs"
+
+[[test]]
+name = "distributed_cache_test"
+path = "tests/distributed_cache_test.rs"
 
 [[bench]]
 name = "conversion_bench"
