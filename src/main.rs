@@ -16,6 +16,9 @@ use std::path::PathBuf;
 use std::io::{self, Read, Write};
 use std::fs;
 use tracing_subscriber;
+use flate2::Compression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder as GzEncoderWrite;
 
 pub mod pb {
     tonic::include_proto!("converter");
@@ -40,6 +43,26 @@ enum Commands {
         input: String,
         
         /// Output file path (defaults to stdout)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Compress TOON data with gzip
+    Compress {
+        /// Input file path (omit for stdin)
+        #[arg(short, long)]
+        input: Option<PathBuf>,
+        
+        /// Output file path (omit for stdout)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Decompress gzip-compressed TOON data
+    Decompress {
+        /// Input file path (omit for stdin)
+        #[arg(short, long)]
+        input: Option<PathBuf>,
+        
+        /// Output file path (omit for stdout)
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -169,6 +192,84 @@ fn detect_format(content: &str) -> Result<&'static str, String> {
     }
 }
 
+fn run_compress(input: Option<PathBuf>, output: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("[COMPRESS] Starting compression...");
+    
+    // Read input
+    let input_data = if let Some(input_path) = input {
+        eprintln!("[COMPRESS] Reading from file: {:?}", input_path);
+        fs::read(&input_path)?
+    } else {
+        eprintln!("[COMPRESS] Reading from STDIN");
+        let mut buffer = Vec::new();
+        io::stdin().read_to_end(&mut buffer)?;
+        buffer
+    };
+    
+    eprintln!("[COMPRESS] Input size: {} bytes", input_data.len());
+    
+    // Compress using gzip
+    let mut encoder = GzEncoderWrite::new(Vec::new(), Compression::default());
+    encoder.write_all(&input_data)?;
+    let compressed_data = encoder.finish()?;
+    
+    eprintln!("[COMPRESS] Compressed size: {} bytes", compressed_data.len());
+    let ratio = (1.0 - (compressed_data.len() as f64 / input_data.len() as f64)) * 100.0;
+    eprintln!("[COMPRESS] Compression ratio: {:.2}%", ratio);
+    
+    // Write output
+    if let Some(output_path) = output {
+        eprintln!("[COMPRESS] Writing to file: {:?}", output_path);
+        fs::write(output_path, compressed_data)?;
+        eprintln!("[COMPRESS] File written successfully");
+    } else {
+        eprintln!("[COMPRESS] Writing to STDOUT");
+        io::stdout().write_all(&compressed_data)?;
+        io::stdout().flush()?;
+    }
+    
+    Ok(())
+}
+
+fn run_decompress(input: Option<PathBuf>, output: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("[DECOMPRESS] Starting decompression...");
+    
+    // Read input
+    let compressed_data = if let Some(input_path) = input {
+        eprintln!("[DECOMPRESS] Reading from file: {:?}", input_path);
+        fs::read(&input_path)?
+    } else {
+        eprintln!("[DECOMPRESS] Reading from STDIN");
+        let mut buffer = Vec::new();
+        io::stdin().read_to_end(&mut buffer)?;
+        buffer
+    };
+    
+    eprintln!("[DECOMPRESS] Compressed size: {} bytes", compressed_data.len());
+    
+    // Decompress using gzip
+    let mut decoder = GzDecoder::new(&compressed_data[..]);
+    let mut decompressed_data = Vec::new();
+    decoder.read_to_end(&mut decompressed_data)?;
+    
+    eprintln!("[DECOMPRESS] Decompressed size: {} bytes", decompressed_data.len());
+    let ratio = (decompressed_data.len() as f64 / compressed_data.len() as f64 - 1.0) * 100.0;
+    eprintln!("[DECOMPRESS] Expansion ratio: {:.2}%", ratio);
+    
+    // Write output
+    if let Some(output_path) = output {
+        eprintln!("[DECOMPRESS] Writing to file: {:?}", output_path);
+        fs::write(output_path, decompressed_data)?;
+        eprintln!("[DECOMPRESS] File written successfully");
+    } else {
+        eprintln!("[DECOMPRESS] Writing to STDOUT");
+        io::stdout().write_all(&decompressed_data)?;
+        io::stdout().flush()?;
+    }
+    
+    Ok(())
+}
+
 fn run_convert(input: String, output: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("[CLI] Reading input...");
     
@@ -229,6 +330,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Convert { input, output }) => {
             // CLI mode - convert file
             run_convert(input, output)?;
+            Ok(())
+        }
+        Some(Commands::Compress { input, output }) => {
+            // CLI mode - compress data
+            run_compress(input, output)?;
+            Ok(())
+        }
+        Some(Commands::Decompress { input, output }) => {
+            // CLI mode - decompress data
+            run_decompress(input, output)?;
             Ok(())
         }
         Some(Commands::Serve) | None => {
