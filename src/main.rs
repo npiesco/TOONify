@@ -173,6 +173,14 @@ enum Commands {
         /// Job queue backend ("memory" or redis URL like "redis://127.0.0.1:6379")
         #[arg(long)]
         job_queue_backend: Option<String>,
+        
+        /// Enable rate limiting (requests per window)
+        #[arg(long)]
+        rate_limit: Option<u32>,
+        
+        /// Rate limit window in seconds (default: 60)
+        #[arg(long, default_value = "60")]
+        rate_limit_window: u64,
     },
 }
 
@@ -1504,7 +1512,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_watch(input_dir, output_dir, from, to, pattern)?;
             Ok(())
         }
-        Some(Commands::Serve { cache_size, memcached, valkey, cache_ttl, enable_job_queue, workers, job_queue_backend }) => {
+        Some(Commands::Serve { cache_size, memcached, valkey, cache_ttl, enable_job_queue, workers, job_queue_backend, rate_limit, rate_limit_window }) => {
             // Server mode
     tracing_subscriber::fmt::init();
 
@@ -1630,6 +1638,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     let app = app.with_state(app_state);
+    
+    // Rate limiting not yet implemented due to dependency conflicts
+    // See README.md Known Issues section for details
+    let _ = (rate_limit, rate_limit_window);
             
             // Bind with custom socket options for better concurrency
             let socket = tokio::net::TcpSocket::new_v4()?;

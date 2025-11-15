@@ -1256,6 +1256,21 @@ See [GitHub Issues](https://github.com/npiesco/TOONify/issues) for detailed task
 
 ## Known Issues
 
+### Rate Limiting (Not Yet Implemented)
+
+**Status:** Rate limiting feature planned for future release.
+
+**Issue:** Rate limiting requires either:
+1. Upgrading to axum 0.8 + tonic 0.14 (breaks current gRPC API)
+2. Implementing custom middleware for axum 0.7
+3. Finding alternative libraries compatible with axum 0.7
+
+Currently blocked by dependency version conflicts between `tower_governor` (requires axum 0.8), `axum` 0.7, and `tonic` 0.12.
+
+**Workaround:** Use external rate limiting (e.g., nginx, API gateway, or reverse proxy) for production deployments. CLI flags `--rate-limit` and `--rate-limit-window` are accepted but not enforced.
+
+**Planned Resolution:** Will be implemented after upgrading to tonic 0.14/axum 0.8 or via custom middleware.
+
 ### macOS Sandbox Permissions
 
 **Symptom:** Cannot bind to network ports when running tests.
