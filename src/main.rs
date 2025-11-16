@@ -36,6 +36,9 @@ use memcache::Client as MemcacheClient;
 #[cfg(feature = "distributed-cache")]
 use redis::Client as RedisClient;
 
+#[cfg(feature = "rate-limit")]
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+
 pub mod pb {
     tonic::include_proto!("converter");
 }
@@ -1625,8 +1628,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = Router::new()
         .route("/", get(health_check))
         .route("/json-to-toon", post(json_to_toon_handler))
-                .route("/toon-to-json", post(toon_to_json_handler));
-    
+        .route("/toon-to-json", post(toon_to_json_handler));
+
     // Add job queue routes if enabled
     #[cfg(feature = "job-queue")]
     if enable_job_queue {
@@ -1637,11 +1640,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .route("/jobs", get(list_jobs_handler));
     }
     
-    let app = app.with_state(app_state);
+    let mut app = app.with_state(app_state);
     
-    // Rate limiting not yet implemented due to dependency conflicts
-    // See README.md Known Issues section for details
-    let _ = (rate_limit, rate_limit_window);
+    // Add rate limiting if enabled
+    #[cfg(feature = "rate-limit")]
+    if let Some(limit) = rate_limit {
+        eprintln!("[RATE LIMIT] Enabled: {} requests per {} seconds", limit, rate_limit_window);
+        
+        let governor_conf = Arc::new(
+            GovernorConfigBuilder::default()
+                .per_second(rate_limit_window)
+                .burst_size(limit)
+                .finish()
+                .unwrap()
+        );
+        
+        app = app.layer(GovernorLayer::new(governor_conf));
+    }
+    
+    let app = app;
             
             // Bind with custom socket options for better concurrency
             let socket = tokio::net::TcpSocket::new_v4()?;
@@ -1654,8 +1671,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("   GET  /            - Health check");
             eprintln!("   POST /json-to-toon - Convert JSON to TOON");
             eprintln!("   POST /toon-to-json - Convert TOON to JSON");
-            
-            axum::serve(listener, app)
+
+    axum::serve(listener, app)
                 .with_graceful_shutdown(async {
                     tokio::signal::ctrl_c().await.ok();
                 })
