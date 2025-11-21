@@ -37,7 +37,11 @@ use memcache::Client as MemcacheClient;
 use redis::Client as RedisClient;
 
 #[cfg(feature = "rate-limit")]
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{
+    governor::GovernorConfigBuilder, 
+    GovernorLayer,
+    key_extractor::GlobalKeyExtractor,
+};
 
 pub mod pb {
     tonic::include_proto!("converter");
@@ -1645,12 +1649,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Add rate limiting if enabled
     #[cfg(feature = "rate-limit")]
     if let Some(limit) = rate_limit {
-        eprintln!("[RATE LIMIT] Enabled: {} requests per {} seconds", limit, rate_limit_window);
+        eprintln!("[RATE LIMIT] Enabled: {} requests per {} seconds (global rate limiting)", limit, rate_limit_window);
         
+        // Use governor's period() method which takes Duration directly
+        // For N requests per W seconds, we allow N requests total in a W-second window
+        let period = std::time::Duration::from_secs(rate_limit_window) / limit;
+        
+        // Note: burst_size needs to be limit+1 due to how governor's GCRA algorithm works
+        // With burst_size(N), only N-1 rapid requests succeed, so we use N+1 to allow N requests
         let governor_conf = Arc::new(
             GovernorConfigBuilder::default()
-                .per_second(rate_limit_window)
-                .burst_size(limit)
+                .period(period)                      // Time to replenish 1 token
+                .burst_size(limit + 1)               // burst_size + 1 to allow 'limit' rapid requests
+                .key_extractor(GlobalKeyExtractor)   // Use global rate limiting (not per-IP)
                 .finish()
                 .unwrap()
         );
