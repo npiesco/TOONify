@@ -21,7 +21,7 @@ def update_cargo_toml(version: str, root: Path) -> None:
         flags=re.MULTILINE
     )
     cargo_path.write_text(updated)
-    print(f"✅ Updated {cargo_path}")
+    print(f"✓ Updated {cargo_path}")
 
 
 def update_setup_py(version: str, root: Path) -> None:
@@ -34,7 +34,7 @@ def update_setup_py(version: str, root: Path) -> None:
         content
     )
     setup_path.write_text(updated)
-    print(f"✅ Updated {setup_path}")
+    print(f"✓ Updated {setup_path}")
 
 
 def update_package_json(version: str, root: Path, path: Path) -> None:
@@ -49,7 +49,7 @@ def update_package_json(version: str, root: Path, path: Path) -> None:
         json.dump(data, f, indent=2)
         f.write('\n')  # Add trailing newline
     
-    print(f"✅ Updated {pkg_path}")
+    print(f"✓ Updated {pkg_path}")
 
 
 def main():
@@ -61,13 +61,13 @@ def main():
     
     # Validate version format (basic semver)
     if not re.match(r'^\d+\.\d+\.\d+$', version):
-        print(f"❌ Invalid version format: {version}")
+        print(f"x Invalid version format: {version}")
         print("Expected format: X.Y.Z (e.g., 0.1.0)")
         sys.exit(1)
     
     root = Path(__file__).parent.parent
     
-    print(f"\n🔄 Bumping version to {version}...")
+    print(f"\nBumping version to {version}...")
     print()
     
     try:
@@ -84,7 +84,7 @@ def main():
         update_package_json(version, root, Path("vscode-extension"))
         
         print()
-        print(f"✨ Version bumped to {version}")
+        print(f"Version bumped to {version}")
         print()
         print("Next steps:")
         print("  1. Review changes: git diff")
@@ -95,11 +95,11 @@ def main():
         print("GitHub Actions will automatically publish to PyPI and npm when you push the tag.")
         
     except FileNotFoundError as e:
-        print(f"❌ Error: {e}")
+        print(f"x Error: {e}")
         print("Make sure you're running this from the repository root.")
         sys.exit(1)
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+        print(f"x Unexpected error: {e}")
         sys.exit(1)
 
 
