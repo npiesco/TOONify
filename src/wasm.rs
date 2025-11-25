@@ -71,6 +71,106 @@ pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// Cached converter for WASM (uses in-memory cache only)
+#[wasm_bindgen]
+pub struct WasmCachedConverter {
+    cache: std::collections::HashMap<String, String>,
+    max_size: usize,
+}
+
+#[wasm_bindgen]
+impl WasmCachedConverter {
+    /// Create a new cached converter
+    /// 
+    /// # Arguments
+    /// * `max_size` - Maximum number of cached entries (0 = unlimited)
+    #[wasm_bindgen(constructor)]
+    pub fn new(max_size: usize) -> WasmCachedConverter {
+        WasmCachedConverter {
+            cache: std::collections::HashMap::new(),
+            max_size,
+        }
+    }
+
+    /// Convert JSON to TOON with caching
+    #[wasm_bindgen(js_name = jsonToToon)]
+    pub fn json_to_toon(&mut self, json_data: &str) -> Result<String, JsValue> {
+        let cache_key = format!("j2t:{}", json_data);
+        
+        // Check cache
+        if let Some(cached) = self.cache.get(&cache_key) {
+            return Ok(cached.clone());
+        }
+
+        // Perform conversion
+        let result = crate::converter::json_to_toon(json_data)
+            .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+
+        // Store in cache (with size limit)
+        if self.max_size == 0 || self.cache.len() < self.max_size {
+            self.cache.insert(cache_key, result.clone());
+        } else if self.max_size > 0 {
+            // Simple eviction: remove first entry
+            if let Some(first_key) = self.cache.keys().next().cloned() {
+                self.cache.remove(&first_key);
+            }
+            self.cache.insert(cache_key, result.clone());
+        }
+
+        Ok(result)
+    }
+
+    /// Convert TOON to JSON with caching
+    #[wasm_bindgen(js_name = toonToJson)]
+    pub fn toon_to_json(&mut self, toon_data: &str) -> Result<String, JsValue> {
+        let cache_key = format!("t2j:{}", toon_data);
+        
+        // Check cache
+        if let Some(cached) = self.cache.get(&cache_key) {
+            return Ok(cached.clone());
+        }
+
+        // Perform conversion
+        let result = crate::converter::toon_to_json(toon_data)
+            .map_err(|e| JsValue::from_str(&format!("Conversion error: {}", e)))?;
+
+        // Store in cache (with size limit)
+        if self.max_size == 0 || self.cache.len() < self.max_size {
+            self.cache.insert(cache_key, result.clone());
+        } else if self.max_size > 0 {
+            // Simple eviction: remove first entry
+            if let Some(first_key) = self.cache.keys().next().cloned() {
+                self.cache.remove(&first_key);
+            }
+            self.cache.insert(cache_key, result.clone());
+        }
+
+        Ok(result)
+    }
+
+    /// Clear the cache
+    #[wasm_bindgen(js_name = clearCache)]
+    pub fn clear_cache(&mut self) {
+        self.cache.clear();
+    }
+
+    /// Get number of cached entries
+    #[wasm_bindgen(js_name = cacheSize)]
+    pub fn cache_size(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Get cache statistics as JSON string
+    #[wasm_bindgen(js_name = cacheStats)]
+    pub fn cache_stats(&self) -> String {
+        format!(
+            r#"{{"entries": {}, "maxSize": {}}}"#,
+            self.cache.len(),
+            self.max_size
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

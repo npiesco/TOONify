@@ -29,7 +29,7 @@ glob = { version = "0.3", optional = true }
 notify = { version = "6.1", optional = true }
 regex = { version = "1.10", optional = true }
 rayon = { version = "1.10", optional = true }
-moka = { version = "0.12", features = ["future"], optional = true }
+moka = { version = "0.12", features = ["future", "sync"], optional = true }
 sled = { version = "0.34", optional = true }
 uniffi = { version = "0.29", features = ["cli"], optional = true }
 uuid = { version = "1.18.1", features = ["v4"], optional = true }
