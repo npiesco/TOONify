@@ -60,6 +60,8 @@ users[1]{id,name,role}:
 pip install toonifypy
 ```
 
+> **Note:** Install as `toonifypy`, import as `toonify`
+
 ```python
 from toonify import json_to_toon, toon_to_json, CachedConverter
 import json

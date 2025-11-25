@@ -10,6 +10,13 @@ High-performance JSON ↔ TOON converter with native Rust bindings for Python.
 pip install toonifypy
 ```
 
+> **Note:** The package is installed as `toonifypy`, but you import it as `toonify`:
+> ```python
+> pip install toonifypy  # Install command
+> from toonify import ... # Import statement
+> ```
+> This follows common Python packaging practice (like `pip install pillow` → `from PIL import ...`).
+
 ## Quick Start
 
 ```python

@@ -9,38 +9,40 @@ let toonifyModule: any = null;
 let cachedConverter: any = null;
 
 /**
- * Load the WASM module from the pkg directory
+ * Initialize the WASM module and cached converter
  */
-async function loadWasmModule(): Promise<any> {
-    if (toonifyModule) {
-        return toonifyModule;
+async function initializeModule(extensionPath: string): Promise<void> {
+    if (cachedConverter) {
+        return;
     }
 
     try {
-        // Try to load from parent directory's pkg folder
-        const pkgPath = path.join(__dirname, '..', '..', 'pkg');
-        const wasmPath = path.join(pkgPath, 'toonify_bg.wasm');
+        // Find the WASM file in the extension's node_modules
+        const wasmPath = path.join(extensionPath, 'node_modules', '@npiesco', 'toonify', 'toonify_bg.wasm');
+        const jsPath = path.join(extensionPath, 'node_modules', '@npiesco', 'toonify', 'toonify.js');
         
         // Check if WASM file exists
         if (!fs.existsSync(wasmPath)) {
             throw new Error(`WASM file not found at ${wasmPath}`);
         }
+        
+        if (!fs.existsSync(jsPath)) {
+            throw new Error(`JS file not found at ${jsPath}`);
+        }
 
-        // Import the WASM module
-        const wasmModule = await import(path.join(pkgPath, 'toonify.js'));
+        // Import the JS module using dynamic import with file URL
+        const toonify = await import(jsPath);
         
-        // Initialize with the WASM binary
+        // Load and initialize with the WASM binary
         const wasmBytes = fs.readFileSync(wasmPath);
-        await wasmModule.default(wasmBytes);
+        await toonify.default(wasmBytes);
         
-        toonifyModule = wasmModule;
+        toonifyModule = toonify;
         
         // Initialize cached converter (100 max entries for editor session)
-        cachedConverter = new wasmModule.WasmCachedConverter(100);
-        
-        return toonifyModule;
+        cachedConverter = new toonify.WasmCachedConverter(100);
     } catch (error) {
-        vscode.window.showErrorMessage(`Failed to load TOONify WASM module: ${error}`);
+        vscode.window.showErrorMessage(`Failed to initialize TOONify: ${error}`);
         throw error;
     }
 }
@@ -48,8 +50,8 @@ async function loadWasmModule(): Promise<any> {
 /**
  * Convert JSON to TOON (using cached converter)
  */
-async function jsonToToon(jsonText: string): Promise<string> {
-    await loadWasmModule();
+async function jsonToToon(jsonText: string, extensionPath: string): Promise<string> {
+    await initializeModule(extensionPath);
     if (cachedConverter) {
         return cachedConverter.jsonToToon(jsonText);
     }
@@ -60,8 +62,8 @@ async function jsonToToon(jsonText: string): Promise<string> {
 /**
  * Convert TOON to JSON (using cached converter)
  */
-async function toonToJson(toonText: string): Promise<string> {
-    await loadWasmModule();
+async function toonToJson(toonText: string, extensionPath: string): Promise<string> {
+    await initializeModule(extensionPath);
     if (cachedConverter) {
         return cachedConverter.toonToJson(toonText);
     }
@@ -97,7 +99,7 @@ function getTextToConvert(editor: vscode.TextEditor): { text: string; range: vsc
 /**
  * Command: Convert JSON to TOON
  */
-async function convertJsonToToonCommand() {
+async function convertJsonToToonCommand(extensionPath: string) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showErrorMessage('No active editor');
@@ -116,7 +118,7 @@ async function convertJsonToToonCommand() {
         }
 
         // Convert to TOON
-        const toonResult = await jsonToToon(text);
+        const toonResult = await jsonToToon(text, extensionPath);
         
         // Replace text in editor
         await editor.edit(editBuilder => {
@@ -132,7 +134,7 @@ async function convertJsonToToonCommand() {
 /**
  * Command: Convert TOON to JSON
  */
-async function convertToonToJsonCommand() {
+async function convertToonToJsonCommand(extensionPath: string) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showErrorMessage('No active editor');
@@ -143,7 +145,7 @@ async function convertToonToJsonCommand() {
         const { text, range } = getTextToConvert(editor);
 
         // Convert to JSON
-        const jsonResult = await toonToJson(text);
+        const jsonResult = await toonToJson(text, extensionPath);
         
         // Format JSON for readability
         const formattedJson = JSON.stringify(JSON.parse(jsonResult), null, 2);
@@ -162,7 +164,7 @@ async function convertToonToJsonCommand() {
 /**
  * Command: Validate TOON syntax
  */
-async function validateToonCommand() {
+async function validateToonCommand(extensionPath: string) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showErrorMessage('No active editor');
@@ -173,7 +175,7 @@ async function validateToonCommand() {
         const { text } = getTextToConvert(editor);
 
         // Try to convert TOON to JSON (validates syntax)
-        await toonToJson(text);
+        await toonToJson(text, extensionPath);
         
         vscode.window.showInformationMessage('✓ TOON syntax is valid');
     } catch (error) {
@@ -184,7 +186,7 @@ async function validateToonCommand() {
 /**
  * Command: Format TOON (roundtrip through JSON)
  */
-async function formatToonCommand() {
+async function formatToonCommand(extensionPath: string) {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showErrorMessage('No active editor');
@@ -195,8 +197,8 @@ async function formatToonCommand() {
         const { text, range } = getTextToConvert(editor);
 
         // Convert TOON → JSON → TOON for formatting
-        const jsonResult = await toonToJson(text);
-        const formattedToon = await jsonToToon(jsonResult);
+        const jsonResult = await toonToJson(text, extensionPath);
+        const formattedToon = await jsonToToon(jsonResult, extensionPath);
         
         // Replace text in editor
         await editor.edit(editBuilder => {
@@ -212,9 +214,9 @@ async function formatToonCommand() {
 /**
  * Command: Show cache statistics
  */
-async function showCacheStatsCommand() {
+async function showCacheStatsCommand(extensionPath: string) {
     try {
-        await loadWasmModule();
+        await initializeModule(extensionPath);
         
         if (cachedConverter) {
             const stats = cachedConverter.cacheStats();
@@ -236,9 +238,9 @@ async function showCacheStatsCommand() {
 /**
  * Command: Clear cache
  */
-async function clearCacheCommand() {
+async function clearCacheCommand(extensionPath: string) {
     try {
-        await loadWasmModule();
+        await initializeModule(extensionPath);
         
         if (cachedConverter) {
             cachedConverter.clearCache();
@@ -256,35 +258,37 @@ async function clearCacheCommand() {
  */
 export function activate(context: vscode.ExtensionContext) {
     console.log('TOONify extension is now active');
+    
+    const extensionPath = context.extensionPath;
 
     // Preload WASM module
-    loadWasmModule().catch(err => {
-        console.error('Failed to preload WASM module:', err);
+    initializeModule(extensionPath).catch(err => {
+        console.error('Failed to initialize TOONify:', err);
     });
 
     // Register commands
     context.subscriptions.push(
-        vscode.commands.registerCommand('toonify.jsonToToon', convertJsonToToonCommand)
+        vscode.commands.registerCommand('toonify.jsonToToon', () => convertJsonToToonCommand(extensionPath))
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('toonify.toonToJson', convertToonToJsonCommand)
+        vscode.commands.registerCommand('toonify.toonToJson', () => convertToonToJsonCommand(extensionPath))
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('toonify.validateToon', validateToonCommand)
+        vscode.commands.registerCommand('toonify.validateToon', () => validateToonCommand(extensionPath))
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('toonify.formatToon', formatToonCommand)
+        vscode.commands.registerCommand('toonify.formatToon', () => formatToonCommand(extensionPath))
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('toonify.showCacheStats', showCacheStatsCommand)
+        vscode.commands.registerCommand('toonify.showCacheStats', () => showCacheStatsCommand(extensionPath))
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('toonify.clearCache', clearCacheCommand)
+        vscode.commands.registerCommand('toonify.clearCache', () => clearCacheCommand(extensionPath))
     );
 
     // Show welcome message

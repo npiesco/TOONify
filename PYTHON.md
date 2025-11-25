@@ -2,6 +2,12 @@
 
 This document describes how to use TOONify from Python using UniFFI-generated bindings.
 
+> **Package vs Module Name:**
+> - **Install**: `pip install toonifypy`
+> - **Import**: `from toonify import ...`
+> 
+> The package name is `toonifypy` (PyPI), but the module name is `toonify` (cleaner imports).
+
 ## What is UniFFI?
 
 [UniFFI](https://mozilla.github.io/uniffi-rs/) is Mozilla's tool for generating foreign language bindings for Rust code. It allows you to write your library once in Rust and automatically generate idiomatic bindings for Python, Swift, Kotlin, and other languages.

@@ -39,12 +39,32 @@ pip install build twine
 
 You'll need a PyPI API token:
 1. Go to https://pypi.org/manage/account/token/
-2. Create a new token
+2. Create a **project-scoped token** for `toonifypy` (recommended for security)
 3. Save it in `~/.pypirc`:
 ```ini
+[distutils]
+index-servers =
+    pypi
+    toonifypy
+
 [pypi]
 username = __token__
-password = pypi-YourTokenHere
+password = pypi-YourGlobalTokenHere
+
+[toonifypy]
+repository = https://upload.pypi.org/legacy/
+username = __token__
+password = pypi-YourProjectScopedTokenHere
+```
+
+**Using project-scoped token:**
+```bash
+twine upload --repository toonifypy dist/*
+```
+
+**Using global token:**
+```bash
+twine upload dist/*
 ```
 
 #### npm

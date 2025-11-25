@@ -19,7 +19,7 @@ if os.path.exists(readme_path):
 
 setup(
     name="toonifypy",
-    version="1.1.0",
+    version="1.1.1",
     description="High-performance JSON ↔ TOON converter. Reduce LLM token usage by 30-60% with Rust-powered Python bindings.",
     long_description=long_description,
     long_description_content_type="text/markdown",

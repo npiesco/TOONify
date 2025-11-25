@@ -114,6 +114,9 @@
     "lint": "eslint src --ext ts",
     "package": "vsce package"
   },
+  "dependencies": {
+    "@npiesco/toonify": "^1.1.0"
+  },
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.75.0",

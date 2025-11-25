@@ -1,0 +1,19 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Alice",
+      "role": "admin",
+      "active": true
+    },
+    {
+      "id": 2,
+      "name": "Bob",
+      "role": "user",
+      "active": false
+    }
+  ],
+  "timestamp": "2025-11-25T10:00:00Z",
+  "version": "1.0"
+}
+
