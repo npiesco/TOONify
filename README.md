@@ -14,6 +14,7 @@
 [![gRPC](https://img.shields.io/badge/Tonic-0.14-blue)](https://github.com/hyperium/tonic)
 [![UniFFI](https://img.shields.io/badge/UniFFI-0.29-green)](https://mozilla.github.io/uniffi-rs/)
 [![VS Code Extension](https://img.shields.io/visual-studio-marketplace/v/NicholasPiesco.toonify?label=VS%20Code&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=NicholasPiesco.toonify)
+[![Open VSX](https://img.shields.io/open-vsx/v/NicholasPiesco/toonify?label=Open%20VSX)](https://open-vsx.org/extension/NicholasPiesco/toonify)
 </div>
 
 ---
@@ -143,8 +144,11 @@ echo '{"users":[{"id":1,"name":"Alice"}]}' | ./target/release/toonify convert -
 
 ### VS Code Extension
 
-Install the **TOONify extension** from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=NicholasPiesco.toonify):
+Install the **TOONify extension** from the marketplace:
 
+**[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=NicholasPiesco.toonify)** | **[Open VSX](https://open-vsx.org/extension/NicholasPiesco/toonify)** (for Cursor/VSCodium)
+
+**Features:**
 - Convert JSON ↔ TOON with `Cmd+Alt+T` / `Cmd+Alt+J`
 - Syntax highlighting for `.toon` files
 - Intelligent caching (500x speedup on repeated conversions)
@@ -152,8 +156,11 @@ Install the **TOONify extension** from the [VS Code Marketplace](https://marketp
 
 **Installation:**
 ```bash
-# Install from VS Code Marketplace
+# VS Code / Cursor
 code --install-extension NicholasPiesco.toonify
+
+# Or use Cursor URL
+cursor:extension/NicholasPiesco.toonify
 ```
 
 ## Use Cases
