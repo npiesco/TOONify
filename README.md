@@ -46,11 +46,11 @@ users[1]{id,name,role}:
 
 **Why TOON?**
 
-- **💰 Cut AI Costs**: 30-60% fewer tokens = 30-60% lower API bills (GPT-4, Claude, etc.)
-- **⚡ Blazing Fast**: Rust-powered with microsecond conversions
-- **🔄 Lossless**: Perfect bidirectional JSON ↔ TOON roundtrips
-- **🌐 Multi-Platform**: Python, TypeScript/WASM, VS Code extension
-- **🚀 Production Ready**: REST API, gRPC, rate limiting, caching
+- **Cut AI Costs**: 30-60% fewer tokens = 30-60% lower API bills (GPT-4, Claude, etc.)
+- **Blazing Fast**: Rust-powered with microsecond conversions
+- **Lossless**: Perfect bidirectional JSON ↔ TOON roundtrips
+- **Multi-Platform**: Python, TypeScript/WASM, VS Code extension
+- **Production Ready**: REST API, gRPC, rate limiting, caching
 
 ## Quick Start
 
