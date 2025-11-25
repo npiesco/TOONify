@@ -29,29 +29,30 @@ glob = { version = "0.3", optional = true }
 notify = { version = "6.1", optional = true }
 regex = { version = "1.10", optional = true }
 rayon = { version = "1.10", optional = true }
-lru = { version = "0.12", optional = true }
+moka = { version = "0.12", features = ["future"], optional = true }
+sled = { version = "0.34", optional = true }
 uniffi = { version = "0.29", features = ["cli"], optional = true }
-memcache = { version = "0.17", optional = true }
-redis = { version = "0.24", optional = true }
 uuid = { version = "1.18.1", features = ["v4"], optional = true }
 tonic-prost = { version = "0.14", optional = true }
 tower_governor = { version = "0.8", optional = true }
 
 [features]
-default = ["server", "cli", "compression", "validation", "batch", "watch", "cache", "distributed-cache", "job-queue", "rate-limit", "uniffi"]
-server = ["axum", "tokio", "tower", "tower-http", "tonic", "tonic-prost", "prost", "tracing", "tracing-subscriber", "lru"]
+default = ["server", "cli", "compression", "validation", "batch", "watch", "cache", "persistent-cache", "job-queue", "rate-limit", "uniffi"]
+server = ["axum", "tokio", "tower", "tower-http", "tonic", "tonic-prost", "prost", "tracing", "tracing-subscriber", "moka"]
 cli = ["clap", "tokio"]
 compression = ["flate2"]
 validation = ["regex"]
 batch = ["glob", "rayon"]
 watch = ["notify", "tokio"]
-cache = ["lru"]
-distributed-cache = ["memcache", "redis"]
-job-queue = ["uuid", "tokio"]
+cache = ["moka"]
+persistent-cache = ["sled"]
+job-queue = ["uuid", "tokio", "sled"]
 rate-limit = ["tower_governor"]
 uuid = ["dep:uuid"]
 tonic-prost = ["dep:tonic-prost"]
 tower_governor = ["dep:tower_governor"]
+moka = ["dep:moka"]
+sled = ["dep:sled"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
@@ -123,10 +124,6 @@ path = "tests/npm_test.rs"
 [[test]]
 name = "pypi_test"
 path = "tests/pypi_test.rs"
-
-[[test]]
-name = "distributed_cache_test"
-path = "tests/distributed_cache_test.rs"
 
 [[test]]
 name = "vscode_extension_test"

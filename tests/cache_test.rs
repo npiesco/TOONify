@@ -272,7 +272,7 @@ fn test_cache_separate_for_different_directions() {
 #[test]
 fn test_cache_eviction_on_size_limit() {
     let _lock = CACHE_TEST_LOCK.lock().unwrap();
-    println!("=== Cache: LRU eviction when cache is full ===");
+    println!("=== Cache: Moka adaptive eviction when cache is full ===");
     
     // Start server with small cache (only 2 entries)
     let mut server = Command::new("cargo")
@@ -318,7 +318,7 @@ fn test_cache_eviction_on_size_limit() {
         .expect("Failed request 2");
     assert!(output2.status.success());
     
-    // Request 3 (cache miss, should evict data1 - LRU)
+    // Request 3 (cache miss, should evict least valuable entry per Moka's TinyLFU policy)
     let output3 = Command::new("curl")
         .args(&[
             "-X", "POST",
@@ -371,7 +371,7 @@ fn test_cache_eviction_on_size_limit() {
     assert!(output2_again.status.success(), "Data2 second request should succeed");
     assert_eq!(output2.stdout, output2_again.stdout, "Data2 should convert identically");
     
-    println!("✓ Cache eviction works with LRU policy\n");
+    println!("✓ Cache eviction works with Moka's adaptive policy\n");
 }
 
 #[test]

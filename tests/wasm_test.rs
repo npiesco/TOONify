@@ -74,7 +74,37 @@ fn test_wasm_pack_build() {
     assert!(Path::new(&ts_file).exists(), "TypeScript definitions should exist");
     assert!(Path::new(&package_json).exists(), "package.json should exist");
     
-    println!("✓ wasm-pack build successful\n");
+    // Patch package.json with required npm fields (wasm-pack generates minimal version)
+    let package_json_content = fs::read_to_string(&package_json).expect("Failed to read package.json");
+    let mut package: serde_json::Value = serde_json::from_str(&package_json_content).expect("Failed to parse package.json");
+    
+    // Add required fields for npm publishing
+    package["description"] = serde_json::json!("High-performance JSON ↔ TOON converter (WASM) - Reduce LLM token usage by 30-60%");
+    package["author"] = serde_json::json!("Nicholas Piesco");
+    package["license"] = serde_json::json!("MIT");
+    package["repository"] = serde_json::json!({
+        "type": "git",
+        "url": "https://github.com/npiesco/TOONify.git"
+    });
+    package["homepage"] = serde_json::json!("https://github.com/npiesco/TOONify#readme");
+    package["bugs"] = serde_json::json!({
+        "url": "https://github.com/npiesco/TOONify/issues"
+    });
+    package["keywords"] = serde_json::json!([
+        "wasm", "webassembly", "json", "toon", "converter", 
+        "llm", "token-optimization", "ai", "rust"
+    ]);
+    
+    // Add README.md to files array
+    if let Some(files) = package["files"].as_array_mut() {
+        files.push(serde_json::json!("README.md"));
+    }
+    
+    // Write updated package.json
+    let updated_json = serde_json::to_string_pretty(&package).expect("Failed to serialize package.json");
+    fs::write(&package_json, updated_json).expect("Failed to write package.json");
+    
+    println!("✓ wasm-pack build successful (package.json patched with npm fields)\n");
 }
 
 #[test]

@@ -28,13 +28,12 @@ use std::sync::mpsc::channel;
 use regex::Regex;
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
-use lru::LruCache;
-use std::num::NonZeroUsize;
 
-#[cfg(feature = "distributed-cache")]
-use memcache::Client as MemcacheClient;
-#[cfg(feature = "distributed-cache")]
-use redis::Client as RedisClient;
+#[cfg(feature = "cache")]
+use moka::future::Cache as MokaCache;
+
+#[cfg(feature = "persistent-cache")]
+use sled::Db as SledDb;
 
 #[cfg(feature = "rate-limit")]
 use tower_governor::{
@@ -153,21 +152,17 @@ enum Commands {
     },
     /// Start the API server (gRPC + REST)
     Serve {
-        /// Enable LRU cache with specified size (number of entries)
+        /// Enable Moka cache with specified size (number of entries)
         #[arg(long)]
-        cache_size: Option<usize>,
+        cache_size: Option<u64>,
         
-        /// Enable Memcached distributed cache (e.g., "127.0.0.1:11211")
+        /// TTL for cache entries in seconds (optional, no expiration if not set)
         #[arg(long)]
-        memcached: Option<String>,
+        cache_ttl: Option<u64>,
         
-        /// Enable Valkey/Redis distributed cache (e.g., "valkey://127.0.0.1:6379")
+        /// Enable Sled persistent cache (path to database file, e.g., "./cache.db")
         #[arg(long)]
-        valkey: Option<String>,
-        
-        /// TTL for distributed cache entries in seconds (default: 3600)
-        #[arg(long, default_value = "3600")]
-        cache_ttl: u64,
+        persistent_cache: Option<String>,
         
         /// Enable job queue for distributed processing
         #[arg(long)]
@@ -191,69 +186,33 @@ enum Commands {
     },
 }
 
-// Conversion cache for HTTP API
-type ConversionCache = Arc<Mutex<LruCache<String, String>>>;
+// Moka cache type for high-performance in-memory caching
+#[cfg(feature = "cache")]
+type MokaConversionCache = Arc<MokaCache<String, String>>;
 
-fn create_cache(size: usize) -> ConversionCache {
-    Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(size).unwrap())))
-}
-
-// Distributed cache backend enum
-#[cfg(feature = "distributed-cache")]
-enum DistributedCache {
-    Memcached(MemcacheClient),
-    Valkey(RedisClient, u64), // Client + TTL
-}
-
-#[cfg(feature = "distributed-cache")]
-impl DistributedCache {
-    fn get(&self, key: &str) -> Option<String> {
-        match self {
-            DistributedCache::Memcached(client) => {
-                client.get::<String>(key).ok().flatten()
-            }
-            DistributedCache::Valkey(client, _) => {
-                if let Ok(mut conn) = client.get_connection() {
-                    redis::cmd("GET").arg(key).query::<Option<String>>(&mut conn).ok().flatten()
-                } else {
-                    None
-                }
-            }
-        }
+#[cfg(feature = "cache")]
+fn create_moka_cache(size: u64, ttl_seconds: Option<u64>) -> MokaConversionCache {
+    let mut builder = MokaCache::builder()
+        .max_capacity(size);
+    
+    if let Some(ttl) = ttl_seconds {
+        builder = builder.time_to_live(std::time::Duration::from_secs(ttl));
     }
     
-    fn set(&self, key: &str, value: &str) {
-        match self {
-            DistributedCache::Memcached(client) => {
-                let _ = client.set(key, value, 0); // 0 means no expiration for now
-            }
-            DistributedCache::Valkey(client, ttl) => {
-                if let Ok(mut conn) = client.get_connection() {
-                    let _ = redis::cmd("SETEX")
-                        .arg(key)
-                        .arg(*ttl)
-                        .arg(value)
-                        .query::<()>(&mut conn);
-                }
-            }
-        }
-    }
+    Arc::new(builder.build())
 }
 
-type DistributedCacheType = Arc<DistributedCache>;
+// Sled database type for persistent caching
+#[cfg(feature = "persistent-cache")]
+type SledCacheDb = Arc<SledDb>;
 
-// Cache state that can hold both LRU and distributed cache
-#[cfg(feature = "distributed-cache")]
+// Cache state with Moka (hot) and Sled (persistent)
 #[derive(Clone)]
 struct CacheState {
-    lru: Option<ConversionCache>,
-    distributed: Option<DistributedCacheType>,
-}
-
-#[cfg(not(feature = "distributed-cache"))]
-#[derive(Clone)]
-struct CacheState {
-    lru: Option<ConversionCache>,
+    #[cfg(feature = "cache")]
+    moka: Option<MokaConversionCache>,
+    #[cfg(feature = "persistent-cache")]
+    sled: Option<SledCacheDb>,
 }
 
 // Combined app state for all handlers
@@ -430,11 +389,11 @@ async fn json_to_toon_handler(
     let cache_state = app_state.cache;
     let cache_key = format!("toonify:json_to_toon:{}", payload.data);
     
-    // Try distributed cache first
-    #[cfg(feature = "distributed-cache")]
-    if let Some(ref dist_cache) = cache_state.distributed {
-        if let Some(cached_result) = dist_cache.get(&cache_key) {
-            eprintln!("[CACHE] Distributed hit for json-to-toon");
+    // Try Moka cache first (hot, lock-free, < 100ns)
+    #[cfg(feature = "cache")]
+    if let Some(ref moka) = cache_state.moka {
+        if let Some(cached_result) = moka.get(&cache_key).await {
+            eprintln!("[CACHE] Moka hit for json-to-toon");
             return (
                 StatusCode::OK,
                 Json(ConvertResult {
@@ -443,40 +402,44 @@ async fn json_to_toon_handler(
                 }),
             );
         }
-        eprintln!("[CACHE] Distributed miss for json-to-toon");
     }
     
-    // Try LRU cache if enabled
-    if let Some(ref lru_cache) = cache_state.lru {
-        if let Ok(mut cache_guard) = lru_cache.lock() {
-            if let Some(cached_result) = cache_guard.get(&cache_key) {
-                eprintln!("[CACHE] LRU hit for json-to-toon");
+    // Try Sled persistent cache if enabled (cold, ~1ms)
+    #[cfg(feature = "persistent-cache")]
+    if let Some(ref sled) = cache_state.sled {
+        if let Ok(Some(cached_bytes)) = sled.get(cache_key.as_bytes()) {
+            if let Ok(cached_result) = String::from_utf8(cached_bytes.to_vec()) {
+                eprintln!("[CACHE] Sled hit for json-to-toon");
+                
+                // Warm up Moka cache from Sled
+                #[cfg(feature = "cache")]
+                if let Some(ref moka) = cache_state.moka {
+                    moka.insert(cache_key.clone(), cached_result.clone()).await;
+                }
+                
                 return (
                     StatusCode::OK,
                     Json(ConvertResult {
-                        result: Some(cached_result.clone()),
+                        result: Some(cached_result),
                         error: None,
                     }),
                 );
             }
         }
-        eprintln!("[CACHE] LRU miss for json-to-toon");
     }
     
-    // Cache miss or no cache - perform conversion
+    // Cache miss - perform conversion
     match converter::json_to_toon(&payload.data) {
         Ok(result) => {
-            // Store in distributed cache if enabled
-            #[cfg(feature = "distributed-cache")]
-            if let Some(ref dist_cache) = cache_state.distributed {
-                dist_cache.set(&cache_key, &result);
+            // Store in both Moka and Sled (write-through)
+            #[cfg(feature = "cache")]
+            if let Some(ref moka) = cache_state.moka {
+                moka.insert(cache_key.clone(), result.clone()).await;
             }
             
-            // Store in LRU cache if enabled
-            if let Some(ref lru_cache) = cache_state.lru {
-                if let Ok(mut cache_guard) = lru_cache.lock() {
-                    cache_guard.put(cache_key, result.clone());
-                }
+            #[cfg(feature = "persistent-cache")]
+            if let Some(ref sled) = cache_state.sled {
+                let _ = sled.insert(cache_key.as_bytes(), result.as_bytes());
             }
             
             (
@@ -504,11 +467,11 @@ async fn toon_to_json_handler(
     let cache_state = app_state.cache;
     let cache_key = format!("toonify:toon_to_json:{}", payload.data);
     
-    // Try distributed cache first
-    #[cfg(feature = "distributed-cache")]
-    if let Some(ref dist_cache) = cache_state.distributed {
-        if let Some(cached_result) = dist_cache.get(&cache_key) {
-            eprintln!("[CACHE] Distributed hit for toon-to-json");
+    // Try Moka cache first (hot, lock-free, < 100ns)
+    #[cfg(feature = "cache")]
+    if let Some(ref moka) = cache_state.moka {
+        if let Some(cached_result) = moka.get(&cache_key).await {
+            eprintln!("[CACHE] Moka hit for toon-to-json");
             return (
                 StatusCode::OK,
                 Json(ConvertResult {
@@ -517,40 +480,44 @@ async fn toon_to_json_handler(
                 }),
             );
         }
-        eprintln!("[CACHE] Distributed miss for toon-to-json");
     }
     
-    // Try LRU cache if enabled
-    if let Some(ref lru_cache) = cache_state.lru {
-        if let Ok(mut cache_guard) = lru_cache.lock() {
-            if let Some(cached_result) = cache_guard.get(&cache_key) {
-                eprintln!("[CACHE] LRU hit for toon-to-json");
+    // Try Sled persistent cache if enabled (cold, ~1ms)
+    #[cfg(feature = "persistent-cache")]
+    if let Some(ref sled) = cache_state.sled {
+        if let Ok(Some(cached_bytes)) = sled.get(cache_key.as_bytes()) {
+            if let Ok(cached_result) = String::from_utf8(cached_bytes.to_vec()) {
+                eprintln!("[CACHE] Sled hit for toon-to-json");
+                
+                // Warm up Moka cache from Sled
+                #[cfg(feature = "cache")]
+                if let Some(ref moka) = cache_state.moka {
+                    moka.insert(cache_key.clone(), cached_result.clone()).await;
+                }
+                
                 return (
                     StatusCode::OK,
                     Json(ConvertResult {
-                        result: Some(cached_result.clone()),
+                        result: Some(cached_result),
                         error: None,
                     }),
                 );
             }
         }
-        eprintln!("[CACHE] LRU miss for toon-to-json");
     }
     
-    // Cache miss or no cache - perform conversion
+    // Cache miss - perform conversion
     match converter::toon_to_json(&payload.data) {
         Ok(result) => {
-            // Store in distributed cache if enabled
-            #[cfg(feature = "distributed-cache")]
-            if let Some(ref dist_cache) = cache_state.distributed {
-                dist_cache.set(&cache_key, &result);
+            // Store in both Moka and Sled (write-through)
+            #[cfg(feature = "cache")]
+            if let Some(ref moka) = cache_state.moka {
+                moka.insert(cache_key.clone(), result.clone()).await;
             }
             
-            // Store in LRU cache if enabled
-            if let Some(ref lru_cache) = cache_state.lru {
-                if let Ok(mut cache_guard) = lru_cache.lock() {
-                    cache_guard.put(cache_key, result.clone());
-                }
+            #[cfg(feature = "persistent-cache")]
+            if let Some(ref sled) = cache_state.sled {
+                let _ = sled.insert(cache_key.as_bytes(), result.as_bytes());
             }
             
             (
@@ -1519,36 +1486,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_watch(input_dir, output_dir, from, to, pattern)?;
             Ok(())
         }
-        Some(Commands::Serve { cache_size, memcached, valkey, cache_ttl, enable_job_queue, workers, job_queue_backend, rate_limit, rate_limit_window }) => {
+        Some(Commands::Serve { cache_size, cache_ttl, persistent_cache, enable_job_queue, workers, job_queue_backend, rate_limit, rate_limit_window }) => {
             // Server mode
     tracing_subscriber::fmt::init();
 
             let grpc_addr: SocketAddr = "0.0.0.0:50051".parse()?;
             let http_addr: SocketAddr = "0.0.0.0:5000".parse()?;
             
-            // Handle distributed cache options
-            #[cfg(feature = "distributed-cache")]
-            let distributed_cache: Option<DistributedCacheType> = if let Some(memcached_url) = memcached {
-                eprintln!("[CACHE] Using Memcached at: {}", memcached_url);
-                // Memcache client expects "memcache://host:port" or "memcache+tcp://host:port" format
-                let url = if memcached_url.starts_with("memcache://") || memcached_url.starts_with("memcache+tcp://") {
-                    memcached_url
+            // Create Moka cache if requested
+            #[cfg(feature = "cache")]
+            let moka_cache = if let Some(size) = cache_size {
+                if let Some(ttl) = cache_ttl {
+                    eprintln!("[CACHE] Moka enabled: {} entries with {}s TTL", size, ttl);
                 } else {
-                    format!("memcache://{}", memcached_url)
-                };
-                match MemcacheClient::connect(url.as_str()) {
-                    Ok(client) => Some(Arc::new(DistributedCache::Memcached(client))),
-                    Err(e) => {
-                        eprintln!("[ERROR] Failed to connect to Memcached: {}", e);
-                        None
-                    }
+                    eprintln!("[CACHE] Moka enabled: {} entries (no TTL)", size);
                 }
-            } else if let Some(valkey_url) = valkey {
-                eprintln!("[CACHE] Using Valkey at: {} (TTL: {}s)", valkey_url, cache_ttl);
-                match RedisClient::open(valkey_url.as_str()) {
-                    Ok(client) => Some(Arc::new(DistributedCache::Valkey(client, cache_ttl))),
+                Some(create_moka_cache(size, cache_ttl))
+            } else {
+                None
+            };
+            
+            #[cfg(not(feature = "cache"))]
+            let moka_cache: Option<()> = None;
+            
+            // Create Sled persistent cache if requested
+            #[cfg(feature = "persistent-cache")]
+            let sled_cache = if let Some(path) = persistent_cache {
+                eprintln!("[CACHE] Sled persistent cache enabled: {}", path);
+                match sled::open(&path) {
+                    Ok(db) => Some(Arc::new(db)),
                     Err(e) => {
-                        eprintln!("[ERROR] Failed to connect to Valkey: {}", e);
+                        eprintln!("[ERROR] Failed to open Sled database: {}", e);
                         None
                     }
                 }
@@ -1556,19 +1524,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None
             };
             
-            #[cfg(not(feature = "distributed-cache"))]
-            let distributed_cache: Option<()> = None;
+            #[cfg(not(feature = "persistent-cache"))]
+            let sled_cache: Option<()> = None;
             
-            // Create LRU cache if requested (fallback or supplement to distributed cache)
-            let cache = if let Some(size) = cache_size {
-                eprintln!("[CACHE] LRU enabled with size: {} entries", size);
-                Some(create_cache(size))
-            } else if distributed_cache.is_none() {
+            // Log cache status
+            if moka_cache.is_none() && sled_cache.is_none() {
                 eprintln!("[CACHE] Disabled (no cache configured)");
-                None
-            } else {
-                None
-            };
+            }
 
     let grpc_service = ConverterServiceServer::new(ConverterServiceImpl);
 
@@ -1581,15 +1543,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("gRPC server failed");
     });
 
-    #[cfg(feature = "distributed-cache")]
     let cache_state = CacheState {
-        lru: cache,
-        distributed: distributed_cache,
-    };
-    
-    #[cfg(not(feature = "distributed-cache"))]
-    let cache_state = CacheState {
-        lru: cache,
+        #[cfg(feature = "cache")]
+        moka: moka_cache,
+        #[cfg(feature = "persistent-cache")]
+        sled: sled_cache,
     };
     
     // Initialize job queue if enabled
@@ -1639,8 +1597,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if enable_job_queue {
         app = app
             .route("/jobs/submit", post(submit_job_handler))
-            .route("/jobs/:job_id/status", get(get_job_status_handler))
-            .route("/jobs/:job_id/result", get(get_job_result_handler))
+            .route("/jobs/{job_id}/status", get(get_job_status_handler))
+            .route("/jobs/{job_id}/result", get(get_job_result_handler))
             .route("/jobs", get(list_jobs_handler));
     }
     
@@ -1699,15 +1657,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             
             eprintln!("[CACHE] Disabled");
             
-            #[cfg(feature = "distributed-cache")]
             let cache_state = CacheState {
-                lru: None,
-                distributed: None,
-            };
-            
-            #[cfg(not(feature = "distributed-cache"))]
-            let cache_state = CacheState {
-                lru: None,
+                #[cfg(feature = "cache")]
+                moka: None,
+                #[cfg(feature = "persistent-cache")]
+                sled: None,
             };
             
             #[cfg(feature = "job-queue")]

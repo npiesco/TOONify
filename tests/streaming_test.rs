@@ -2,9 +2,21 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::net::TcpListener;
+use std::sync::Mutex;
+
+// Global mutex to prevent concurrent server tests (they all use port 5000)
+static SERVER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn is_port_free(port: u16) -> bool {
     TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
+}
+
+fn cleanup_servers() {
+    // Kill any lingering toonify processes
+    let _ = Command::new("pkill")
+        .args(&["-9", "toonify"])
+        .output();
+    thread::sleep(Duration::from_millis(500));
 }
 
 fn wait_for_server_ready(max_attempts: u32) -> bool {
@@ -30,6 +42,9 @@ fn wait_for_server_ready(max_attempts: u32) -> bool {
 
 #[test]
 fn test_streaming_json_to_toon() {
+    let _lock = SERVER_TEST_LOCK.lock().unwrap();
+    cleanup_servers();
+    
     println!("=== Streaming: JSON to TOON via HTTP ===");
     
     // Skip if port is already in use
@@ -84,6 +99,9 @@ fn test_streaming_json_to_toon() {
 
 #[test]
 fn test_streaming_toon_to_json() {
+    let _lock = SERVER_TEST_LOCK.lock().unwrap();
+    cleanup_servers();
+    
     println!("=== Streaming: TOON to JSON via HTTP ===");
     
     // Skip if port is already in use
@@ -138,6 +156,9 @@ fn test_streaming_toon_to_json() {
 
 #[test]
 fn test_streaming_large_payload() {
+    let _lock = SERVER_TEST_LOCK.lock().unwrap();
+    cleanup_servers();
+    
     println!("=== Streaming: Large Payload ===");
     
     // Skip if port is already in use
@@ -208,6 +229,9 @@ fn test_streaming_large_payload() {
 
 #[test]
 fn test_streaming_concurrent_requests() {
+    let _lock = SERVER_TEST_LOCK.lock().unwrap();
+    cleanup_servers();
+    
     println!("=== Streaming: Concurrent Requests ===");
     
     // Skip if port is already in use
@@ -268,6 +292,9 @@ fn test_streaming_concurrent_requests() {
 
 #[test]
 fn test_streaming_health_check() {
+    let _lock = SERVER_TEST_LOCK.lock().unwrap();
+    cleanup_servers();
+    
     println!("=== Streaming: Health Check ===");
     
     // Skip if port is already in use
