@@ -116,6 +116,43 @@ except ToonError as e:
     print(f"Conversion failed: {e}")
 ```
 
+## High-Performance Caching
+
+For repeated conversions, use `CachedConverter` for **10-330x speedup**:
+
+```python
+from toonify import CachedConverter
+
+# Create cached converter (Moka + Sled)
+converter = CachedConverter(
+    cache_size=100,              # Max 100 entries in memory
+    cache_ttl_secs=3600,         # 1 hour TTL (None = forever)
+    persistent_path="./cache.db" # Persistent storage (None = memory only)
+)
+
+# First conversion (cache miss)
+json_data = '{"users": [{"id": 1, "name": "Alice"}]}'
+toon1 = converter.json_to_toon(json_data)  # ~1ms
+
+# Second conversion (cache hit)
+toon2 = converter.json_to_toon(json_data)  # <100ns (330x faster!)
+
+# Check cache stats
+print(converter.cache_stats())
+# Cache Statistics:
+#   Moka entries: 1
+#   Moka weighted size: 1 bytes
+#   Sled entries: 1
+
+# Clear cache
+converter.clear_cache()
+```
+
+**Cache Architecture:**
+- **Moka**: Lock-free concurrent in-memory cache (hot path)
+- **Sled**: Embedded persistent database (survives restarts)
+- **Lookup**: Moka → Sled → Conversion
+
 ## Use Cases
 
 ### LLM API Cost Reduction

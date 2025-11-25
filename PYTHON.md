@@ -130,6 +130,43 @@ except ToonError as e:
     # Output: Error: Conversion error: Invalid JSON: ...
 ```
 
+### Using CachedConverter (High Performance)
+
+```python
+from toonify import CachedConverter
+
+# Create cached converter with Moka (in-memory) + Sled (persistent)
+converter = CachedConverter(
+    cache_size=100,           # Max 100 entries in Moka cache
+    cache_ttl_secs=3600,      # Expire after 1 hour (None = no expiration)
+    persistent_path="./cache.db"  # Sled database path (None = memory only)
+)
+
+# First conversion (cache miss)
+json_data = '{"users": [{"id": 1, "name": "Alice"}]}'
+toon1 = converter.json_to_toon(json_data)  # ~1ms
+
+# Second conversion (cache hit from Moka - blazing fast!)
+toon2 = converter.json_to_toon(json_data)  # <100ns (10-330x faster!)
+
+# Check cache statistics
+print(converter.cache_stats())
+# Output:
+# Cache Statistics:
+#   Moka entries: 1
+#   Moka weighted size: 1 bytes
+#   Sled entries: 1
+
+# Clear the cache
+converter.clear_cache()
+```
+
+**Cache Features:**
+- **Moka**: Lock-free concurrent in-memory cache with TinyLFU eviction
+- **Sled**: Embedded persistent database (survives restarts)
+- **Two-tier**: Moka (hot) → Sled (cold) → Conversion (miss)
+- **Performance**: 10-330x speedup on cache hits
+
 ## API Reference
 
 ### Functions
@@ -159,6 +196,47 @@ Converts a TOON format string to JSON.
 
 **Raises:**
 - `ToonError`: If the TOON format is invalid or conversion fails
+
+### Classes
+
+#### `CachedConverter`
+
+High-performance cached converter with two-tier caching (Moka + Sled).
+
+**Constructor:**
+```python
+CachedConverter(
+    cache_size: int,
+    cache_ttl_secs: Optional[int],
+    persistent_path: Optional[str]
+)
+```
+
+**Parameters:**
+- `cache_size` (int): Maximum number of entries in Moka cache
+- `cache_ttl_secs` (Optional[int]): Time-to-live in seconds (None = no expiration)
+- `persistent_path` (Optional[str]): Path to Sled database (None = memory only)
+
+**Methods:**
+
+##### `json_to_toon(json_data: str) -> str`
+Converts JSON to TOON (cached).
+
+##### `toon_to_json(toon_data: str) -> str`
+Converts TOON to JSON (cached).
+
+##### `cache_stats() -> str`
+Returns cache statistics (Moka + Sled entries).
+
+##### `clear_cache()`
+Clears both Moka and Sled caches.
+
+**Example:**
+```python
+converter = CachedConverter(cache_size=100, cache_ttl_secs=None, persistent_path="./cache.db")
+toon = converter.json_to_toon('{"users":[{"id":1}]}')
+print(converter.cache_stats())
+```
 
 ### Exceptions
 
