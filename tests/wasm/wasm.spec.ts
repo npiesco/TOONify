@@ -151,6 +151,90 @@ test.describe('TOONify WASM Integration', () => {
     expect(result.toonSize).toBeGreaterThan(0);
   });
 
+  test('should support WasmCachedConverter', async ({ page }) => {
+    const success = await page.getAttribute('body', 'data-cached-converter-success');
+    expect(success).toBe('true');
+    
+    const stats = await page.getAttribute('body', 'data-cache-stats');
+    expect(stats).toBeTruthy();
+    
+    const statsObj = JSON.parse(stats!);
+    expect(statsObj.entries).toBeGreaterThan(0);
+    expect(statsObj.maxSize).toBe(10);
+  });
+
+  test('should clear cache correctly', async ({ page }) => {
+    const cleared = await page.getAttribute('body', 'data-cache-cleared');
+    expect(cleared).toBe('true');
+  });
+
+  test('should perform cached conversions via page.evaluate', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const wasmModule = await import('../../pkg/toonify.js');
+      await wasmModule.default();
+      const { WasmCachedConverter } = wasmModule;
+      
+      const converter = new WasmCachedConverter(50);
+      const testJson = JSON.stringify({ test: 'cached', value: 999 });
+      
+      // First conversion (miss)
+      const start1 = performance.now();
+      const result1 = converter.jsonToToon(testJson);
+      const time1 = performance.now() - start1;
+      
+      // Second conversion (hit)
+      const start2 = performance.now();
+      const result2 = converter.jsonToToon(testJson);
+      const time2 = performance.now() - start2;
+      
+      const stats = JSON.parse(converter.cacheStats());
+      
+      return {
+        result1: result1,
+        result2: result2,
+        resultsMatch: result1 === result2,
+        time1: time1,
+        time2: time2,
+        speedup: time1 / time2,
+        cacheEntries: stats.entries,
+        maxSize: stats.maxSize
+      };
+    });
+    
+    expect(result.resultsMatch).toBe(true);
+    expect(result.speedup).toBeGreaterThan(1); // Cache should be faster
+    expect(result.cacheEntries).toBe(1);
+    expect(result.maxSize).toBe(50);
+  });
+
+  test('should handle cache eviction when full', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const wasmModule = await import('../../pkg/toonify.js');
+      await wasmModule.default();
+      const { WasmCachedConverter } = wasmModule;
+      
+      const converter = new WasmCachedConverter(3); // Very small cache
+      
+      // Add 5 entries (should evict oldest)
+      for (let i = 0; i < 5; i++) {
+        const json = JSON.stringify({ id: i, data: `test${i}` });
+        converter.jsonToToon(json);
+      }
+      
+      const stats = JSON.parse(converter.cacheStats());
+      
+      return {
+        entries: stats.entries,
+        maxSize: stats.maxSize,
+        evicted: stats.entries === 3 // Should have evicted 2 entries
+      };
+    });
+    
+    expect(result.evicted).toBe(true);
+    expect(result.entries).toBe(3);
+    expect(result.maxSize).toBe(3);
+  });
+
   test('should have no console errors', async ({ page }) => {
     const errors: string[] = [];
     page.on('console', msg => {

@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 let toonifyModule: any = null;
+let cachedConverter: any = null;
 
 /**
  * Load the WASM module from the pkg directory
@@ -33,6 +34,10 @@ async function loadWasmModule(): Promise<any> {
         await wasmModule.default(wasmBytes);
         
         toonifyModule = wasmModule;
+        
+        // Initialize cached converter (100 max entries for editor session)
+        cachedConverter = new wasmModule.WasmCachedConverter(100);
+        
         return toonifyModule;
     } catch (error) {
         vscode.window.showErrorMessage(`Failed to load TOONify WASM module: ${error}`);
@@ -41,19 +46,27 @@ async function loadWasmModule(): Promise<any> {
 }
 
 /**
- * Convert JSON to TOON
+ * Convert JSON to TOON (using cached converter)
  */
 async function jsonToToon(jsonText: string): Promise<string> {
-    const module = await loadWasmModule();
-    return module.json_to_toon(jsonText);
+    await loadWasmModule();
+    if (cachedConverter) {
+        return cachedConverter.jsonToToon(jsonText);
+    }
+    // Fallback to non-cached if converter not initialized
+    return toonifyModule.json_to_toon(jsonText);
 }
 
 /**
- * Convert TOON to JSON
+ * Convert TOON to JSON (using cached converter)
  */
 async function toonToJson(toonText: string): Promise<string> {
-    const module = await loadWasmModule();
-    return module.toon_to_json(toonText);
+    await loadWasmModule();
+    if (cachedConverter) {
+        return cachedConverter.toonToJson(toonText);
+    }
+    // Fallback to non-cached if converter not initialized
+    return toonifyModule.toon_to_json(toonText);
 }
 
 /**
@@ -197,6 +210,48 @@ async function formatToonCommand() {
 }
 
 /**
+ * Command: Show cache statistics
+ */
+async function showCacheStatsCommand() {
+    try {
+        await loadWasmModule();
+        
+        if (cachedConverter) {
+            const stats = cachedConverter.cacheStats();
+            const statsObj = JSON.parse(stats);
+            
+            const message = `Cache Statistics:\n` +
+                          `  Entries: ${statsObj.entries}/${statsObj.maxSize}\n` +
+                          `  Hit Rate: Better performance on repeated conversions`;
+            
+            vscode.window.showInformationMessage(message);
+        } else {
+            vscode.window.showWarningMessage('Cache not initialized');
+        }
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to get cache stats: ${error}`);
+    }
+}
+
+/**
+ * Command: Clear cache
+ */
+async function clearCacheCommand() {
+    try {
+        await loadWasmModule();
+        
+        if (cachedConverter) {
+            cachedConverter.clearCache();
+            vscode.window.showInformationMessage('✓ Cache cleared');
+        } else {
+            vscode.window.showWarningMessage('Cache not initialized');
+        }
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to clear cache: ${error}`);
+    }
+}
+
+/**
  * Extension activation
  */
 export function activate(context: vscode.ExtensionContext) {
@@ -224,8 +279,16 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('toonify.formatToon', formatToonCommand)
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('toonify.showCacheStats', showCacheStatsCommand)
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('toonify.clearCache', clearCacheCommand)
+    );
+
     // Show welcome message
-    vscode.window.showInformationMessage('TOONify extension activated! Use Cmd+Alt+T to convert JSON to TOON.');
+    vscode.window.showInformationMessage('TOONify extension activated! Cached converter ready (100 entries). Use Cmd+Alt+T to convert.');
 }
 
 /**

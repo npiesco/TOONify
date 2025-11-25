@@ -16,7 +16,7 @@ Running:
 """
 
 try:
-    from toonify import json_to_toon, toon_to_json, ToonError
+    from toonify import json_to_toon, toon_to_json, CachedConverter, ToonError
 except ImportError as e:
     print(f"✗ Failed to import toonify: {e}")
     print("\nMake sure the package is installed:")
@@ -148,6 +148,84 @@ def main():
     except json.JSONDecodeError as e:
         print(f"✗ JSON parsing failed: {e}")
         return
+    
+    print()
+    print("=" * 60)
+    
+    # Example 4: Using CachedConverter for performance
+    print("Example 4: CachedConverter (Moka + Sled)")
+    print("-" * 60)
+    
+    try:
+        import time
+        import tempfile
+        import os
+        
+        # Create temporary directory for Sled cache
+        temp_dir = tempfile.mkdtemp()
+        sled_path = os.path.join(temp_dir, "toon_cache.db")
+        
+        print(f"Using Sled database: {sled_path}")
+        print()
+        
+        # Create cached converter with Moka (100 entries) + Sled (persistent)
+        converter = CachedConverter(
+            cache_size=100,
+            cache_ttl_secs=None,  # No TTL (cache forever)
+            persistent_path=sled_path
+        )
+        
+        test_json = '{"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]}'
+        
+        # First conversion (cache miss)
+        print("First conversion (cache miss):")
+        start = time.time()
+        result1 = converter.json_to_toon(test_json)
+        time1 = (time.time() - start) * 1000
+        print(f"  Time: {time1:.2f}ms")
+        print(f"  Result: {result1[:50]}...")
+        print()
+        
+        # Second conversion (cache hit from Moka)
+        print("Second conversion (cache hit from Moka):")
+        start = time.time()
+        result2 = converter.json_to_toon(test_json)
+        time2 = (time.time() - start) * 1000
+        print(f"  Time: {time2:.2f}ms")
+        print(f"  Speedup: {time1/time2:.1f}x faster!")
+        print()
+        
+        # Show cache statistics
+        print("Cache statistics:")
+        print(converter.cache_stats())
+        
+        # Clear Moka cache (but keep Sled)
+        print("\nClearing Moka cache...")
+        converter.clear_cache()
+        print(converter.cache_stats())
+        
+        # Third conversion (cache hit from Sled, warms up Moka)
+        print("\nThird conversion (cache hit from Sled):")
+        start = time.time()
+        result3 = converter.json_to_toon(test_json)
+        time3 = (time.time() - start) * 1000
+        print(f"  Time: {time3:.2f}ms")
+        print(f"  Result: {result3[:50]}...")
+        print()
+        
+        print("Final cache statistics:")
+        print(converter.cache_stats())
+        
+        # Cleanup
+        import shutil
+        shutil.rmtree(temp_dir)
+        
+        print("\n✓ Cached converter example completed!")
+        
+    except Exception as e:
+        print(f"✗ Cached converter example failed: {e}")
+        import traceback
+        traceback.print_exc()
     
     print()
     print("=" * 60)

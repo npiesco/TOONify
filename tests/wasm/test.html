@@ -21,7 +21,7 @@
                 // Import and initialize WASM module
                 const wasmModule = await import('../../pkg/toonify.js');
                 await wasmModule.default();
-                const { json_to_toon, toon_to_json } = wasmModule;
+                const { json_to_toon, toon_to_json, WasmCachedConverter } = wasmModule;
                 
                 statusEl.textContent = 'WASM module loaded';
                 
@@ -103,6 +103,46 @@
                     <strong>✓ Complex Object:</strong><br>
                     TOON: ${complexToon}<br>
                     Roundtrip JSON: ${complexBack}
+                </div>`;
+                
+                // Test 6: WasmCachedConverter
+                const converter = new WasmCachedConverter(10); // Small cache for testing
+                const testJson6 = JSON.stringify({ cached: true, value: 123 });
+                
+                // First conversion (cache miss)
+                const start1 = performance.now();
+                const cachedResult1 = converter.jsonToToon(testJson6);
+                const time1 = performance.now() - start1;
+                
+                // Second conversion (cache hit)
+                const start2 = performance.now();
+                const cachedResult2 = converter.jsonToToon(testJson6);
+                const time2 = performance.now() - start2;
+                
+                // Get cache stats
+                const cacheStats = converter.cacheStats();
+                const statsObj = JSON.parse(cacheStats);
+                
+                document.body.setAttribute('data-cached-converter-success', 'true');
+                document.body.setAttribute('data-cache-stats', cacheStats);
+                
+                resultsEl.innerHTML += `<div class="test-result" data-test="cached-converter">
+                    <strong>✓ Cached Converter:</strong><br>
+                    First conversion: ${time1.toFixed(3)}ms (cache miss)<br>
+                    Second conversion: ${time2.toFixed(3)}ms (cache hit)<br>
+                    Speedup: ${(time1/time2).toFixed(1)}x faster<br>
+                    Cache stats: ${statsObj.entries}/${statsObj.maxSize} entries
+                </div>`;
+                
+                // Clear cache test
+                converter.clearCache();
+                const clearedStats = JSON.parse(converter.cacheStats());
+                const cacheCleared = clearedStats.entries === 0;
+                document.body.setAttribute('data-cache-cleared', cacheCleared.toString());
+                
+                resultsEl.innerHTML += `<div class="test-result" data-test="cache-clear">
+                    <strong>${cacheCleared ? '✓' : '✗'} Cache Clear:</strong><br>
+                    Entries after clear: ${clearedStats.entries}
                 </div>`;
                 
                 statusEl.textContent = 'All tests completed';
