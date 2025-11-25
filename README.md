@@ -13,7 +13,7 @@
 [![Tech Stack](https://img.shields.io/badge/Axum-0.8-red)](https://github.com/tokio-rs/axum)
 [![gRPC](https://img.shields.io/badge/Tonic-0.14-blue)](https://github.com/hyperium/tonic)
 [![UniFFI](https://img.shields.io/badge/UniFFI-0.29-green)](https://mozilla.github.io/uniffi-rs/)
-[![VS Code](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visualstudiocode)](./vscode-extension)
+[![VS Code Extension](https://img.shields.io/visual-studio-marketplace/v/NicholasPiesco.toonify?label=VS%20Code&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=NicholasPiesco.toonify)
 </div>
 
 ---
@@ -143,12 +143,18 @@ echo '{"users":[{"id":1,"name":"Alice"}]}' | ./target/release/toonify convert -
 
 ### VS Code Extension
 
-Install the **TOONify extension** from VS Code Marketplace:
+Install the **TOONify extension** from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=NicholasPiesco.toonify):
 
 - Convert JSON ↔ TOON with `Cmd+Alt+T` / `Cmd+Alt+J`
 - Syntax highlighting for `.toon` files
 - Intelligent caching (500x speedup on repeated conversions)
 - Cache management commands
+
+**Installation:**
+```bash
+# Install from VS Code Marketplace
+code --install-extension NicholasPiesco.toonify
+```
 
 ## Use Cases
 

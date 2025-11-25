@@ -2,10 +2,11 @@
   "name": "toonify",
   "displayName": "TOONify",
   "description": "JSON \u2194 TOON format converter for VS Code. Reduce LLM token usage by 30-60%.",
-  "version": "1.1.0",
-  "publisher": "toonify",
+  "version": "1.1.1",
+  "publisher": "NicholasPiesco",
   "author": "TOONify Contributors",
   "license": "MIT",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/npiesco/TOONify.git"
