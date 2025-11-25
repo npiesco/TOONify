@@ -157,29 +157,14 @@ setup(
 ### Automated Version Bump Script
 
 ```bash
-#!/bin/bash
-# bump-version.sh
-VERSION=$1
+# Use the provided Python script
+python scripts/bump_version.py 0.1.0
 
-if [ -z "$VERSION" ]; then
-    echo "Usage: ./bump-version.sh 0.1.0"
-    exit 1
-fi
-
-# Update Cargo.toml
-sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-
-# Update Python setup.py
-sed -i '' "s/version=\".*\"/version=\"$VERSION\"/" bindings/python/setup.py
-
-# Update npm package.json
-cd pkg && npm version $VERSION --no-git-tag-version && cd ..
-
-# Update VS Code extension
-cd vscode-extension && npm version $VERSION --no-git-tag-version && cd ..
-
-echo "✅ Version bumped to $VERSION"
-echo "Run: git commit -am 'chore: bump version to $VERSION' && git tag v$VERSION && git push --tags"
+# This will update:
+# - Cargo.toml
+# - bindings/python/setup.py
+# - pkg/package.json
+# - vscode-extension/package.json
 ```
 
 ## Testing Before Publishing
