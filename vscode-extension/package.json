@@ -1,8 +1,8 @@
 {
   "name": "toonify",
   "displayName": "TOONify",
-  "description": "JSON ↔ TOON format converter for VS Code. Reduce LLM token usage by 30-60%.",
-  "version": "0.1.0",
+  "description": "JSON \u2194 TOON format converter for VS Code. Reduce LLM token usage by 30-60%.",
+  "version": "1.1.0",
   "publisher": "toonify",
   "author": "TOONify Contributors",
   "license": "MIT",
@@ -88,8 +88,13 @@
     "languages": [
       {
         "id": "toon",
-        "aliases": ["TOON", "toon"],
-        "extensions": [".toon"],
+        "aliases": [
+          "TOON",
+          "toon"
+        ],
+        "extensions": [
+          ".toon"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -119,4 +124,3 @@
     "@vscode/vsce": "^2.22.0"
   }
 }
-

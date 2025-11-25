@@ -7,7 +7,7 @@ High-performance JSON ↔ TOON converter with native Rust bindings for Python.
 ## Installation
 
 ```bash
-pip install toonify
+pip install toonifypy
 ```
 
 ## Quick Start

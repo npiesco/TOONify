@@ -43,3 +43,5 @@ Thumbs.db
 *.log
 tmp/
 
+# Nicholas's files
+TOKEN.md

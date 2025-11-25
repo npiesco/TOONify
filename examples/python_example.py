@@ -20,6 +20,8 @@ try:
 except ImportError as e:
     print(f"✗ Failed to import toonify: {e}")
     print("\nMake sure the package is installed:")
+    print("   pip install toonifypy")
+    print("\nOr install from source:")
     print("   pip install -e bindings/python/")
     print("\nOr if not installed, ensure bindings are generated:")
     print("   1. cargo build --lib --release")

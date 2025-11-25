@@ -57,7 +57,7 @@ users[1]{id,name,role}:
 ### Python
 
 ```bash
-pip install toonify
+pip install toonifypy
 ```
 
 ```python
@@ -85,11 +85,11 @@ See [Python Documentation](PYTHON.md) for full API reference.
 ### TypeScript/WASM
 
 ```bash
-npm install toonify
+npm install @npiesco/toonify
 ```
 
 ```typescript
-import { json_to_toon, toon_to_json, WasmCachedConverter } from 'toonify';
+import { json_to_toon, toon_to_json, WasmCachedConverter } from '@npiesco/toonify';
 
 // Basic conversion
 const json = JSON.stringify({ users: [{ id: 1, name: "Bob" }] });

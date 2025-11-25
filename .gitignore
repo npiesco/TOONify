@@ -49,3 +49,4 @@ tests/wasm/test-results/
 # IDE
 .vscode/
 .idea/
+TOKEN.md

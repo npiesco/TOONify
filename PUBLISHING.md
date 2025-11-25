@@ -246,7 +246,7 @@ After publishing:
 
 2. **Test installation**:
    ```bash
-   pip install toonify==0.1.0
+   pip install toonifypy==1.1.0
    npm install toonify@0.1.0
    ```
 
