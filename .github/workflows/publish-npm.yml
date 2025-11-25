@@ -1,0 +1,57 @@
+name: Publish WASM Package to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.1.0)'
+        required: true
+        type: string
+
+jobs:
+  build-and-publish:
+    name: Build and publish WASM package to npm
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        registry-url: 'https://registry.npmjs.org'
+    
+    - name: Install wasm-pack
+      run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+    
+    - name: Build WASM package
+      run: wasm-pack build --target web --out-dir pkg --no-default-features
+    
+    - name: Update package version (if manual trigger)
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        cd pkg
+        npm version ${{ github.event.inputs.version }} --no-git-tag-version
+    
+    - name: Publish to npm (Release only)
+      if: github.event_name == 'release'
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      run: |
+        cd pkg
+        npm publish
+    
+    - name: Upload WASM artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: wasm-dist
+        path: pkg/
+
