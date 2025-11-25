@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="toonify-logo.png" alt="TOONify Logo" width="200"/>
   <h1>TOONify</h1>
   <p><strong>High-performance JSON ↔ TOON converter built with Rust</strong></p>
   
