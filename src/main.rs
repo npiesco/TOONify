@@ -42,9 +42,9 @@ use tower_governor::{
     key_extractor::GlobalKeyExtractor,
 };
 
-pub mod pb {
-    tonic::include_proto!("converter");
-}
+// Use pre-generated protobuf code (no need for protoc/cmake at build time)
+mod proto;
+pub use proto::generated as pb;
 
 use pb::converter_service_server::{ConverterService, ConverterServiceServer};
 use pb::{ConvertRequest, ConvertResponse};

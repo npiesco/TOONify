@@ -48,6 +48,9 @@ cache = ["moka"]
 persistent-cache = ["sled"]
 job-queue = ["uuid", "tokio", "sled"]
 rate-limit = ["tower_governor"]
+# Feature for developers: regenerate protobuf code from .proto file
+# Requires cmake and protoc. Regular users don't need this.
+proto-regen = ["dep:tonic-prost-build", "dep:protobuf-src"]
 uuid = ["dep:uuid"]
 tonic-prost = ["dep:tonic-prost"]
 tower_governor = ["dep:tower_governor"]
@@ -60,9 +63,10 @@ console_error_panic_hook = "0.1"
 wee_alloc = "0.4"
 
 [build-dependencies]
-tonic-build = "0.14"
-tonic-prost-build = "0.14"
+tonic-prost-build = { version = "0.14", optional = true }
 uniffi = { version = "0.29", features = ["build"] }
+# Optional: Only needed when regenerating protobuf code (PROTO_REGEN=1)
+protobuf-src = { version = "2.1", optional = true }
 
 
 [[bin]]
