@@ -1,8 +1,8 @@
 {
   "name": "toonify",
   "displayName": "TOONify",
-  "description": "JSON \u2194 TOON format converter for VS Code. Reduce LLM token usage by 30-60%.",
-  "version": "1.1.1",
+  "description": "JSON ↔ TOON format converter for VS Code. Reduce LLM token usage by 30-60%.",
+  "version": "1.1.7",
   "publisher": "NicholasPiesco",
   "author": "TOONify Contributors",
   "license": "MIT",
@@ -115,16 +115,16 @@
     "lint": "eslint src --ext ts",
     "package": "vsce package"
   },
-  "dependencies": {
-    "@npiesco/toonify": "^1.1.0"
-  },
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.75.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/vsce": "^2.22.0",
     "eslint": "^8.0.0",
-    "typescript": "^5.0.0",
-    "@vscode/vsce": "^2.22.0"
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@npiesco/toonify": "^1.1.7"
   }
 }

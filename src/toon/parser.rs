@@ -79,7 +79,7 @@ fn column_metadata(input: &str) -> IResult<&str, Vec<String>> {
     let (input, cols) = separated_list0(
         char(','),
         map(
-            take_while1(|c: char| c.is_alphanumeric() || c == '_'),
+            take_while1(|c: char| c.is_alphanumeric() || c == '_' || c == '-' || c == '@' || c == '/' || c == '.' || c == ':'),
             |s: &str| s.trim().to_string(),
         ),
     )(input)?;
@@ -169,6 +169,12 @@ fn is_entry_header_line(line: &str) -> bool {
         None => return false,
     };
     
+    // Reject URL-like patterns (colon followed by //)
+    let after_colon = &trimmed[colon_pos + 1..];
+    if after_colon.starts_with("//") {
+        return false;
+    }
+    
     let before_colon = &trimmed[..colon_pos];
     
     let chars: Vec<char> = before_colon.chars().collect();
@@ -235,9 +241,19 @@ fn split_csv(line: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut in_quotes = false;
+    let mut prev_was_backslash = false;
     
     for ch in line.chars() {
+        if prev_was_backslash {
+            current.push(ch);
+            prev_was_backslash = false;
+            continue;
+        }
+        
         match ch {
+            '\\' => {
+                prev_was_backslash = true;
+            }
             '"' => in_quotes = !in_quotes,
             ',' if !in_quotes => {
                 parts.push(current.trim().to_string());
@@ -276,6 +292,24 @@ fn parse_value(s: &str) -> Value {
     if let Ok(num) = s.parse::<f64>() {
         if let Some(n) = Number::from_f64(num) {
             return Value::Number(n);
+        }
+    }
+    
+    // Handle quoted strings - strip quotes and unescape
+    if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+        let inner = &s[1..s.len()-1];
+        // Try to parse as JSON first (for nested arrays/objects that were quoted)
+        if let Ok(json_value) = serde_json::from_str(inner) {
+            return json_value;
+        }
+        // Otherwise return as unescaped string
+        return Value::String(inner.replace("\\\"", "\""));
+    }
+    
+    // Try to parse as JSON (for nested arrays/objects)
+    if (s.starts_with('[') && s.ends_with(']')) || (s.starts_with('{') && s.ends_with('}')) {
+        if let Ok(json_value) = serde_json::from_str(s) {
+            return json_value;
         }
     }
     

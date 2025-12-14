@@ -88,14 +88,17 @@ fn serialize_value(value: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => {
-            if s.contains(',') || s.contains('"') || s.contains('\n') {
+            // Quote strings containing special characters that could confuse the parser
+            if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains(':') {
                 format!("\"{}\"", s.replace('"', "\\\""))
             } else {
                 s.clone()
             }
         }
         Value::Array(_) | Value::Object(_) => {
-            serde_json::to_string(value).unwrap_or_default()
+            let json = serde_json::to_string(value).unwrap_or_default();
+            // Quote JSON values so CSV parser doesn't split on internal commas
+            format!("\"{}\"", json.replace('"', "\\\""))
         }
     }
 }

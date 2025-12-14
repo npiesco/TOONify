@@ -16,18 +16,13 @@ Running:
 """
 
 try:
-    from toonify import json_to_toon, toon_to_json, CachedConverter, ToonError
+    from toonifypy import json_to_toon, toon_to_json, CachedConverter, ToonError
 except ImportError as e:
-    print(f"✗ Failed to import toonify: {e}")
+    print(f"✗ Failed to import toonifypy: {e}")
     print("\nMake sure the package is installed:")
     print("   pip install toonifypy")
     print("\nOr install from source:")
     print("   pip install -e bindings/python/")
-    print("\nOr if not installed, ensure bindings are generated:")
-    print("   1. cargo build --lib --release")
-    print("   2. cargo run --bin uniffi-bindgen -- generate --library target/release/libtoonify.dylib --language python --out-dir bindings/python")
-    print("   3. cp target/release/libtoonify.dylib bindings/python/")
-    print("   4. pip install -e bindings/python/")
     import sys
     sys.exit(1)
 
@@ -107,43 +102,67 @@ def main():
     print()
     print("=" * 60)
     
-    # Example 3: Round-trip conversion
-    print("Example 3: Round-trip (JSON -> TOON -> JSON)")
+    # Example 3: Round-trip conversion with actual file (vscode-extension/package.json)
+    print("Example 3: Round-trip with actual file (vscode-extension/package.json)")
     print("-" * 60)
     
-    original_json = """{
-  "metadata": {
-    "version": "1.0.0",
-    "timestamp": "2024-11-13T10:30:00Z"
-  }
-}"""
+    import json
+    import os
     
-    print("Original JSON:")
-    print(original_json)
-    print()
+    # Find the vscode-extension/package.json relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    package_json_path = os.path.join(project_root, "vscode-extension", "package.json")
     
     try:
+        with open(package_json_path, "r") as f:
+            original_json = f.read()
+        
+        print(f"Loaded: {package_json_path}")
+        print(f"File size: {len(original_json)} bytes")
+        print()
+        
         # Convert to TOON
         toon = json_to_toon(original_json)
-        print("TOON intermediate:")
-        print(toon)
+        print("✓ Converted to TOON:")
+        print(f"   TOON size: {len(toon)} bytes")
+        print(f"   First 200 chars: {toon[:200]}...")
         print()
         
         # Convert back to JSON
         final_json = toon_to_json(toon)
-        print("✓ Final JSON:")
-        print(final_json)
+        print("✓ Converted back to JSON:")
+        print(f"   JSON size: {len(final_json)} bytes")
+        print()
         
-        # Verify semantic equivalence (would need json module for proper comparison)
-        import json
+        # Verify semantic equivalence AND key order preservation
         original_obj = json.loads(original_json)
         final_obj = json.loads(final_json)
         
         if original_obj == final_obj:
-            print("\n✓ Round-trip successful! Data preserved.")
+            print("✓ Semantic equivalence: PASSED")
         else:
-            print("\n! Round-trip completed but data differs (this may be due to formatting)")
+            print("✗ Semantic equivalence: FAILED")
+            return
+        
+        # Check key order preservation by re-serializing both
+        original_formatted = json.dumps(original_obj, indent=2)
+        final_formatted = json.dumps(final_obj, indent=2)
+        
+        if original_formatted == final_formatted:
+            print("✓ Key order preservation: PASSED")
+        else:
+            print("✗ Key order preservation: FAILED")
+            print("   Original first keys:", list(original_obj.keys())[:5])
+            print("   Final first keys:", list(final_obj.keys())[:5])
+            return
+        
+        print("\n✓ Round-trip successful! Data AND key order preserved.")
             
+    except FileNotFoundError:
+        print(f"✗ File not found: {package_json_path}")
+        print("   Run this script from the TOONify project root")
+        return
     except ToonError as e:
         print(f"✗ Conversion failed: {e}")
         return

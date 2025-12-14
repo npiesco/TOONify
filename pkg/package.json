@@ -1,38 +1,15 @@
 {
-  "author": "Nicholas Piesco",
-  "bugs": {
-    "url": "https://github.com/npiesco/TOONify/issues"
-  },
-  "description": "High-performance JSON \u2194 TOON converter (WASM) - Reduce LLM token usage by 30-60%",
+  "name": "@npiesco/toonify",
+  "type": "module",
+  "version": "1.1.7",
   "files": [
     "toonify_bg.wasm",
     "toonify.js",
-    "toonify.d.ts",
-    "README.md"
+    "toonify.d.ts"
   ],
-  "homepage": "https://github.com/npiesco/TOONify#readme",
-  "keywords": [
-    "wasm",
-    "webassembly",
-    "json",
-    "toon",
-    "converter",
-    "llm",
-    "token-optimization",
-    "ai",
-    "rust"
-  ],
-  "license": "MIT",
   "main": "toonify.js",
-  "name": "@npiesco/toonify",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/npiesco/TOONify.git"
-  },
+  "types": "toonify.d.ts",
   "sideEffects": [
     "./snippets/*"
-  ],
-  "type": "module",
-  "types": "toonify.d.ts",
-  "version": "1.1.0"
+  ]
 }
